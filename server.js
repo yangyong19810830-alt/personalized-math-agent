@@ -8,6 +8,10 @@ const ROOT = __dirname;
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || "";
 const DEEPSEEK_BASE_URL = (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com").replace(/\/$/, "");
 const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || "deepseek-chat";
+const VISION_API_KEY = process.env.VISION_API_KEY || "";
+const VISION_PROVIDER = (process.env.VISION_PROVIDER || "zhipu").toLowerCase();
+const VISION_BASE_URL = (process.env.VISION_BASE_URL || "https://open.bigmodel.cn/api/paas/v4").replace(/\/$/, "");
+const VISION_MODEL = process.env.VISION_MODEL || "glm-4v-plus-0111";
 const DAILY_LIMIT = Number(process.env.CHAT_LIMIT_PER_DAY || 20);
 const quota = new Map();
 const sessions = new Map();
@@ -174,6 +178,8 @@ function systemPrompt(profile) {
     "核心教学观：先判断学生已有基础、当前卡点和可推进的下一步，再帮助学生形成稳定理解。",
     "回答必须使用数学教育本地话语，不能暴露任何内部理论标签或框架名。",
     "禁止在输出中使用这些词：SDE、纠缠、差异序列、结构显露、显露态、六爪、抓核、抓裂缝、改姓、锻造、投放、本体论、空虚混沌、发生链、在 E 中、经 D、成 S。",
+    "数学公式优先用学生可直接读懂的普通文本或 Unicode 符号，例如 x <= (a-2)/4、x ≥ -1、3/4 ÷ 1/8。不要输出 \\dfrac、\\leqslant、\\begin{cases} 这类 LaTeX 原码。只有确实需要时才用 $...$ 包裹简单公式。",
+    "如果题目中带有 LaTeX 原码，要先把它翻译成自然数学表达，再启发学生。",
     "不要一上来直接给完整答案。先定位卡点，再给一层提示，再要求学生补充条件或第一步；必要时给分层讲解。",
     "网页右侧有解题结构图，但不能一开始就给完整结构图。真正的教学要先让学生思考。",
     "默认策略：第一次看到具体题目时，先不画完整结构图，只提出 1-2 个启发问题，让学生说已知条件、目标或第一步想法。",
@@ -281,6 +287,50 @@ async function callDeepSeek(messages, profile) {
     diagramAction: action,
     diagram: action === "hold" ? null : normalizeDiagram(parsed.diagram)
   };
+}
+
+async function callVision(image) {
+  if (!VISION_API_KEY) {
+    throw new Error("当前网站还没有配置图片识别模型。请先手动输入题目文字，或联系管理员配置 VISION_API_KEY。");
+  }
+
+  const imageForProvider = VISION_PROVIDER === "zhipu"
+    ? image.replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/, "")
+    : image;
+
+  const response = await fetch(`${VISION_BASE_URL}/chat/completions`, {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${VISION_API_KEY}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      model: VISION_MODEL,
+      temperature: 0,
+      max_tokens: 1200,
+      messages: [
+        {
+          role: "system",
+          content: "你是数学题目 OCR 助手。只负责把图片中的题目准确转写成中文数学文本。保留题号、条件、图形标注、公式和选项。不要解题，不要解释。公式尽量转成学生可读的普通文本，例如 x >= -1、(a-2)/4。"
+        },
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "请识别这张图片中的数学题目，完整转写。若有几何图，请描述图中点、线、角、相等/平行/垂直等标注。" },
+            { type: "image_url", image_url: { url: imageForProvider } }
+          ]
+        }
+      ]
+    })
+  });
+
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(data.error?.message || data.message || `图片识别 API 错误：${response.status}`);
+  }
+  const text = (data.choices?.[0]?.message?.content || "").trim();
+  if (!text) throw new Error("图片识别结果为空，请换一张更清晰的图片");
+  return text;
 }
 
 async function handleQuota(req, res) {
@@ -415,6 +465,30 @@ async function handleChat(req, res) {
   }
 }
 
+async function handleVision(req, res) {
+  try {
+    const user = getUserFromRequest(req);
+    if (!user) {
+      sendJson(res, 401, { error: "请先登录后再使用图片识别功能" });
+      return;
+    }
+    const body = JSON.parse(await readBody(req) || "{}");
+    const image = String(body.image || "");
+    if (!image.startsWith("data:image/")) {
+      sendJson(res, 400, { error: "请上传有效的题目图片" });
+      return;
+    }
+    if (image.length > 6 * 1024 * 1024) {
+      sendJson(res, 400, { error: "图片太大了，请上传更小或压缩后的图片" });
+      return;
+    }
+    const text = await callVision(image);
+    sendJson(res, 200, { text });
+  } catch (error) {
+    sendJson(res, 500, { error: error.message || "图片识别失败" });
+  }
+}
+
 const server = http.createServer((req, res) => {
   if (req.method === "POST" && req.url === "/api/register") {
     handleRegister(req, res);
@@ -438,6 +512,10 @@ const server = http.createServer((req, res) => {
   }
   if (req.method === "POST" && req.url === "/api/chat") {
     handleChat(req, res);
+    return;
+  }
+  if (req.method === "POST" && req.url === "/api/vision") {
+    handleVision(req, res);
     return;
   }
   if (req.method === "GET") {
