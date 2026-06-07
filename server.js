@@ -1,6 +1,7 @@
 const http = require("http");
 const fs = require("fs");
 const path = require("path");
+const crypto = require("crypto");
 
 const PORT = Number(process.env.PORT || 8787);
 const ROOT = __dirname;
@@ -9,6 +10,9 @@ const DEEPSEEK_BASE_URL = (process.env.DEEPSEEK_BASE_URL || "https://api.deepsee
 const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || "deepseek-chat";
 const DAILY_LIMIT = Number(process.env.CHAT_LIMIT_PER_DAY || 20);
 const quota = new Map();
+const sessions = new Map();
+const DATA_DIR = path.join(ROOT, "data");
+const USERS_FILE = path.join(DATA_DIR, "users.json");
 
 const mime = {
   ".html": "text/html; charset=utf-8",
@@ -24,6 +28,70 @@ function today() {
   return new Date().toISOString().slice(0, 10);
 }
 
+function ensureDataStore() {
+  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+  if (!fs.existsSync(USERS_FILE)) fs.writeFileSync(USERS_FILE, "[]", "utf8");
+}
+
+function readUsers() {
+  ensureDataStore();
+  try {
+    return JSON.parse(fs.readFileSync(USERS_FILE, "utf8"));
+  } catch {
+    return [];
+  }
+}
+
+function writeUsers(users) {
+  ensureDataStore();
+  fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2), "utf8");
+}
+
+function normalizeEmail(email) {
+  return String(email || "").trim().toLowerCase();
+}
+
+function hashPassword(password, salt = crypto.randomBytes(16).toString("hex")) {
+  const hash = crypto.pbkdf2Sync(String(password), salt, 120000, 32, "sha256").toString("hex");
+  return { salt, hash };
+}
+
+function verifyPassword(password, user) {
+  const result = hashPassword(password, user.salt);
+  return crypto.timingSafeEqual(Buffer.from(result.hash, "hex"), Buffer.from(user.passwordHash, "hex"));
+}
+
+function publicUser(user) {
+  return {
+    id: user.id,
+    name: user.name,
+    email: user.email
+  };
+}
+
+function createSession(user) {
+  const token = crypto.randomBytes(32).toString("hex");
+  sessions.set(token, {
+    userId: user.id,
+    createdAt: Date.now()
+  });
+  return token;
+}
+
+function authToken(req) {
+  const header = req.headers.authorization || "";
+  if (header.startsWith("Bearer ")) return header.slice(7);
+  return "";
+}
+
+function getUserFromRequest(req) {
+  const token = authToken(req);
+  const session = sessions.get(token);
+  if (!session) return null;
+  const users = readUsers();
+  return users.find(user => user.id === session.userId) || null;
+}
+
 function clientIp(req) {
   const forwarded = req.headers["x-forwarded-for"];
   if (typeof forwarded === "string" && forwarded.trim()) {
@@ -32,18 +100,18 @@ function clientIp(req) {
   return req.socket.remoteAddress || "unknown";
 }
 
-function quotaKey(req, guestId) {
-  return `${today()}:${clientIp(req)}:${guestId || "anonymous"}`;
+function quotaKey(req, identity) {
+  return `${today()}:${identity || clientIp(req)}`;
 }
 
-function remainingFor(req, guestId) {
-  const key = quotaKey(req, guestId);
+function remainingFor(req, identity) {
+  const key = quotaKey(req, identity);
   const used = quota.get(key) || 0;
   return Math.max(0, DAILY_LIMIT - used);
 }
 
-function consumeQuota(req, guestId) {
-  const key = quotaKey(req, guestId);
+function consumeQuota(req, identity) {
+  const key = quotaKey(req, identity);
   const used = quota.get(key) || 0;
   if (used >= DAILY_LIMIT) return false;
   quota.set(key, used + 1);
@@ -152,18 +220,103 @@ async function callDeepSeek(messages, profile) {
 }
 
 async function handleQuota(req, res) {
-  const url = new URL(req.url, `http://localhost:${PORT}`);
-  const guestId = url.searchParams.get("guestId") || "";
+  const user = getUserFromRequest(req);
+  const identity = user ? `user:${user.id}` : `ip:${clientIp(req)}`;
   sendJson(res, 200, {
     limit: DAILY_LIMIT,
-    remaining: remainingFor(req, guestId)
+    remaining: remainingFor(req, identity),
+    user: user ? publicUser(user) : null
   });
+}
+
+async function handleRegister(req, res) {
+  try {
+    const body = JSON.parse(await readBody(req) || "{}");
+    const name = String(body.name || "").trim();
+    const email = normalizeEmail(body.email);
+    const password = String(body.password || "");
+
+    if (!name || !email || !password) {
+      sendJson(res, 400, { error: "请填写昵称、邮箱和密码" });
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      sendJson(res, 400, { error: "邮箱格式不正确" });
+      return;
+    }
+    if (password.length < 6) {
+      sendJson(res, 400, { error: "密码至少 6 位" });
+      return;
+    }
+
+    const users = readUsers();
+    if (users.some(user => user.email === email)) {
+      sendJson(res, 409, { error: "这个邮箱已经注册，请直接登录" });
+      return;
+    }
+
+    const passwordData = hashPassword(password);
+    const user = {
+      id: crypto.randomUUID(),
+      name,
+      email,
+      salt: passwordData.salt,
+      passwordHash: passwordData.hash,
+      createdAt: new Date().toISOString()
+    };
+    users.push(user);
+    writeUsers(users);
+
+    const token = createSession(user);
+    sendJson(res, 200, { token, user: publicUser(user), limit: DAILY_LIMIT, remaining: remainingFor(req, `user:${user.id}`) });
+  } catch (error) {
+    sendJson(res, 500, { error: error.message || "注册失败" });
+  }
+}
+
+async function handleLogin(req, res) {
+  try {
+    const body = JSON.parse(await readBody(req) || "{}");
+    const email = normalizeEmail(body.email);
+    const password = String(body.password || "");
+    const user = readUsers().find(item => item.email === email);
+
+    if (!user || !verifyPassword(password, user)) {
+      sendJson(res, 401, { error: "邮箱或密码不正确" });
+      return;
+    }
+
+    const token = createSession(user);
+    sendJson(res, 200, { token, user: publicUser(user), limit: DAILY_LIMIT, remaining: remainingFor(req, `user:${user.id}`) });
+  } catch (error) {
+    sendJson(res, 500, { error: error.message || "登录失败" });
+  }
+}
+
+async function handleMe(req, res) {
+  const user = getUserFromRequest(req);
+  if (!user) {
+    sendJson(res, 200, { user: null, limit: DAILY_LIMIT, remaining: remainingFor(req, `ip:${clientIp(req)}`) });
+    return;
+  }
+  sendJson(res, 200, { user: publicUser(user), limit: DAILY_LIMIT, remaining: remainingFor(req, `user:${user.id}`) });
+}
+
+async function handleLogout(req, res) {
+  const token = authToken(req);
+  if (token) sessions.delete(token);
+  sendJson(res, 200, { ok: true });
 }
 
 async function handleChat(req, res) {
   try {
     const body = JSON.parse(await readBody(req) || "{}");
-    const guestId = String(body.guestId || "");
+    const user = getUserFromRequest(req);
+    if (!user) {
+      sendJson(res, 401, { error: "请先登录后再使用对话功能" });
+      return;
+    }
+    const identity = `user:${user.id}`;
     const profile = body.profile || {};
     const messages = Array.isArray(body.messages) ? body.messages : [];
 
@@ -172,7 +325,7 @@ async function handleChat(req, res) {
       return;
     }
 
-    if (!consumeQuota(req, guestId)) {
+    if (!consumeQuota(req, identity)) {
       sendJson(res, 429, {
         error: `今天的 ${DAILY_LIMIT} 次试用次数已经用完，明天可以继续。`,
         limit: DAILY_LIMIT,
@@ -185,7 +338,8 @@ async function handleChat(req, res) {
     sendJson(res, 200, {
       answer,
       limit: DAILY_LIMIT,
-      remaining: remainingFor(req, guestId)
+      remaining: remainingFor(req, identity),
+      user: publicUser(user)
     });
   } catch (error) {
     sendJson(res, 500, {
@@ -196,6 +350,22 @@ async function handleChat(req, res) {
 }
 
 const server = http.createServer((req, res) => {
+  if (req.method === "POST" && req.url === "/api/register") {
+    handleRegister(req, res);
+    return;
+  }
+  if (req.method === "POST" && req.url === "/api/login") {
+    handleLogin(req, res);
+    return;
+  }
+  if (req.method === "GET" && req.url === "/api/me") {
+    handleMe(req, res);
+    return;
+  }
+  if (req.method === "POST" && req.url === "/api/logout") {
+    handleLogout(req, res);
+    return;
+  }
   if (req.method === "GET" && req.url.startsWith("/api/quota")) {
     handleQuota(req, res);
     return;

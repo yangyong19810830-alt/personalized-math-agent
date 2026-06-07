@@ -211,6 +211,22 @@
       font-size: 12px;
       line-height: 1.45;
     }
+    .auth {
+      max-width: 520px;
+      margin: 20px auto 0;
+    }
+    .auth-actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+    .userbar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .hidden { display: none !important; }
     @media (max-width: 820px) {
       header { align-items: flex-start; flex-direction: column; }
       main { grid-template-columns: 1fr; padding: 10px; }
@@ -229,10 +245,36 @@
           <div class="sub">小学到大学数学 · 先定位卡点，再安排路径，最后形成稳定理解</div>
         </div>
       </div>
-      <div class="quota" id="quota">剩余次数：读取中</div>
+      <div class="userbar">
+        <div class="quota" id="quota">剩余次数：读取中</div>
+        <button class="btn hidden" id="logout">退出</button>
+      </div>
     </header>
 
-    <main>
+    <section class="panel auth" id="authPanel">
+      <div class="head"><h2>登录后开始试用</h2></div>
+      <div class="body">
+        <div class="field">
+          <label for="authName">昵称</label>
+          <input id="authName" placeholder="例如：小明妈妈" />
+        </div>
+        <div class="field">
+          <label for="authEmail">邮箱</label>
+          <input id="authEmail" type="email" placeholder="you@example.com" />
+        </div>
+        <div class="field">
+          <label for="authPassword">密码</label>
+          <input id="authPassword" type="password" placeholder="至少 6 位" />
+        </div>
+        <div class="auth-actions">
+          <button class="btn primary" id="register">注册并登录</button>
+          <button class="btn" id="login">登录</button>
+        </div>
+        <p class="small">账号用于记录每日试用次数。请不要使用常用重要密码。</p>
+      </div>
+    </section>
+
+    <main id="mainApp" class="hidden">
       <aside class="panel">
         <div class="head"><h2>学习画像</h2></div>
         <div class="body">
@@ -288,14 +330,14 @@
   </div>
 
   <script>
-    const guestKey = "math_agent_guest_id";
-    const guestId = localStorage.getItem(guestKey) || crypto.randomUUID();
-    localStorage.setItem(guestKey, guestId);
-
     let stage = "小学";
     let history = [];
+    let authToken = localStorage.getItem("math_agent_token") || "";
+    let currentUser = null;
     const messages = document.querySelector("#messages");
     const quota = document.querySelector("#quota");
+    const authPanel = document.querySelector("#authPanel");
+    const mainApp = document.querySelector("#mainApp");
 
     function profile() {
       return {
@@ -319,13 +361,49 @@
       quota.textContent = `今日剩余：${data.remaining}/${data.limit} 次`;
     }
 
+    function authHeaders() {
+      return authToken ? { Authorization: `Bearer ${authToken}` } : {};
+    }
+
+    function updateAuthView(data) {
+      currentUser = data?.user || null;
+      setQuota(data);
+      document.querySelector("#logout").classList.toggle("hidden", !currentUser);
+      authPanel.classList.toggle("hidden", Boolean(currentUser));
+      mainApp.classList.toggle("hidden", !currentUser);
+      if (currentUser && !messages.children.length) {
+        addMessage(`你好，${currentUser.name}。你可以发一道题，也可以让我安排今天的学习。我会先定位卡点，再给合适提示，帮助学生形成稳定方法。`);
+      }
+    }
+
     async function loadQuota() {
       try {
-        const res = await fetch(`/api/quota?guestId=${encodeURIComponent(guestId)}`);
-        setQuota(await res.json());
+        const res = await fetch("/api/me", { headers: authHeaders() });
+        updateAuthView(await res.json());
       } catch {
         quota.textContent = "剩余次数：无法读取";
       }
+    }
+
+    async function authRequest(path) {
+      const payload = {
+        name: document.querySelector("#authName").value.trim(),
+        email: document.querySelector("#authEmail").value.trim(),
+        password: document.querySelector("#authPassword").value
+      };
+      const res = await fetch(path, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || "操作失败");
+        return;
+      }
+      authToken = data.token;
+      localStorage.setItem("math_agent_token", authToken);
+      updateAuthView(data);
     }
 
     async function send(text) {
@@ -336,9 +414,8 @@
       try {
         const res = await fetch("/api/chat", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", ...authHeaders() },
           body: JSON.stringify({
-            guestId,
             profile: profile(),
             messages: history
           })
@@ -380,7 +457,18 @@
       send("请根据我的阶段、目标和当前状态，安排今天的数学学习。");
     });
 
-    addMessage("你好，我是个性化数学学习智能体。你可以发一道题，也可以让我安排今天的学习。我会先定位卡点，再给合适提示，帮助你形成稳定方法。");
+    document.querySelector("#register").addEventListener("click", () => authRequest("/api/register"));
+    document.querySelector("#login").addEventListener("click", () => authRequest("/api/login"));
+    document.querySelector("#logout").addEventListener("click", async () => {
+      await fetch("/api/logout", { method: "POST", headers: authHeaders() }).catch(() => {});
+      authToken = "";
+      currentUser = null;
+      localStorage.removeItem("math_agent_token");
+      messages.innerHTML = "";
+      updateAuthView({ user: null, limit: 0, remaining: 0 });
+      quota.textContent = "请先登录";
+    });
+
     loadQuota();
   </script>
 </body>
