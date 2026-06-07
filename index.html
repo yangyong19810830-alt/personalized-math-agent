@@ -362,9 +362,9 @@
       </section>
 
       <aside class="panel visual">
-        <div class="head"><h2>图示板</h2></div>
+        <div class="head"><h2>解题结构图</h2></div>
         <div class="visual-board" id="visualBoard"></div>
-        <div class="body small">图示会根据题目自动切换。第一版支持分数、数轴、函数、几何和面积模型。</div>
+        <div class="body small">输入具体题目后，这里会画出“已知条件、关键关系、解题步骤、目标结果”的推进图。</div>
       </aside>
     </main>
   </div>
@@ -407,106 +407,9 @@
       `;
     }
 
-    function drawFraction() {
-      visualCard(
-        "分数除法：看见“里面有几个”",
-        `<svg viewBox="0 0 320 180" role="img" aria-label="分数除法图示">
-          <rect x="24" y="32" width="240" height="34" fill="#fff" stroke="#98a2b3"/>
-          <rect x="24" y="32" width="180" height="34" fill="#99f6e4" stroke="#0f766e"/>
-          <line x1="84" y1="32" x2="84" y2="66" stroke="#98a2b3"/>
-          <line x1="144" y1="32" x2="144" y2="66" stroke="#98a2b3"/>
-          <line x1="204" y1="32" x2="204" y2="66" stroke="#98a2b3"/>
-          <text x="24" y="25" font-size="13" fill="#344054">把 1 平均分成 4 份</text>
-          <text x="92" y="55" font-size="13" fill="#064e3b">3/4</text>
-          <rect x="24" y="104" width="60" height="34" fill="#ccfbf1" stroke="#0f766e"/>
-          <rect x="84" y="104" width="60" height="34" fill="#ccfbf1" stroke="#0f766e"/>
-          <rect x="144" y="104" width="60" height="34" fill="#ccfbf1" stroke="#0f766e"/>
-          <text x="39" y="126" font-size="13" fill="#064e3b">1/4</text>
-          <text x="99" y="126" font-size="13" fill="#064e3b">1/4</text>
-          <text x="159" y="126" font-size="13" fill="#064e3b">1/4</text>
-          <text x="24" y="162" font-size="14" fill="#1f2937">3/4 ÷ 1/4 = 3</text>
-        </svg>`,
-        "除以一个分数，可以先理解为：目标量里包含几个这样的单位分数。"
-      );
-    }
-
-    function drawNumberLine() {
-      visualCard(
-        "数轴：看见大小和位置",
-        `<svg viewBox="0 0 320 170" role="img" aria-label="数轴图示">
-          <line x1="28" y1="90" x2="292" y2="90" stroke="#344054" stroke-width="2"/>
-          <polygon points="292,90 282,84 282,96" fill="#344054"/>
-          ${[0,1,2,3,4].map((n,i)=>`<line x1="${40+i*55}" y1="82" x2="${40+i*55}" y2="98" stroke="#667085"/><text x="${36+i*55}" y="120" font-size="13" fill="#344054">${n}</text>`).join("")}
-          <circle cx="122.5" cy="90" r="7" fill="#0f766e"/>
-          <text x="104" y="70" font-size="13" fill="#0f766e">1.5</text>
-          <path d="M40 54 C65 30, 96 30, 122 54" fill="none" stroke="#7c3aed" stroke-width="2"/>
-          <text x="60" y="28" font-size="13" fill="#6d28d9">从 0 走 1.5</text>
-        </svg>`,
-        "数轴适合比较大小、理解负数、分数、小数和方程解的位置。"
-      );
-    }
-
-    function drawFunction() {
-      visualCard(
-        "函数：看见输入和输出怎样一起变",
-        `<svg viewBox="0 0 320 220" role="img" aria-label="函数图示">
-          <line x1="45" y1="180" x2="290" y2="180" stroke="#344054" stroke-width="2"/>
-          <line x1="60" y1="198" x2="60" y2="24" stroke="#344054" stroke-width="2"/>
-          <polygon points="290,180 280,174 280,186" fill="#344054"/>
-          <polygon points="60,24 54,34 66,34" fill="#344054"/>
-          <path d="M65 165 C100 135, 135 92, 170 85 C205 78, 235 110, 270 55" fill="none" stroke="#0f766e" stroke-width="3"/>
-          <line x1="150" y1="180" x2="150" y2="94" stroke="#98a2b3" stroke-dasharray="4 4"/>
-          <line x1="60" y1="94" x2="150" y2="94" stroke="#98a2b3" stroke-dasharray="4 4"/>
-          <circle cx="150" cy="94" r="6" fill="#7c3aed"/>
-          <text x="156" y="88" font-size="13" fill="#6d28d9">(x, y)</text>
-          <text x="278" y="200" font-size="13" fill="#344054">x</text>
-          <text x="38" y="34" font-size="13" fill="#344054">y</text>
-        </svg>`,
-        "函数图像不是一堆点，而是“一个量变化时，另一个量怎样跟着变”。"
-      );
-    }
-
-    function drawGeometry() {
-      visualCard(
-        "几何证明：看见关系而不是背步骤",
-        `<svg viewBox="0 0 320 220" role="img" aria-label="几何图示">
-          <polygon points="70,170 250,170 150,48" fill="#f8fafc" stroke="#1d4ed8" stroke-width="2"/>
-          <line x1="150" y1="48" x2="150" y2="170" stroke="#0f766e" stroke-width="2" stroke-dasharray="5 4"/>
-          <rect x="150" y="158" width="12" height="12" fill="none" stroke="#0f766e"/>
-          <text x="58" y="188" font-size="14" fill="#344054">A</text>
-          <text x="254" y="188" font-size="14" fill="#344054">B</text>
-          <text x="145" y="40" font-size="14" fill="#344054">C</text>
-          <text x="156" y="154" font-size="13" fill="#0f766e">高</text>
-          <path d="M86 163 L96 153" stroke="#7c3aed" stroke-width="2"/>
-          <path d="M230 153 L240 163" stroke="#7c3aed" stroke-width="2"/>
-          <text x="92" y="112" font-size="13" fill="#1f2937">找相等</text>
-          <text x="190" y="112" font-size="13" fill="#1f2937">找垂直</text>
-        </svg>`,
-        "几何题先看图中的稳定关系：相等、平行、垂直、角度、辅助线。"
-      );
-    }
-
-    function drawAreaModel() {
-      visualCard(
-        "面积模型：看见乘法和分配",
-        `<svg viewBox="0 0 320 210" role="img" aria-label="面积模型">
-          <rect x="58" y="42" width="210" height="120" fill="#fff" stroke="#344054" stroke-width="2"/>
-          <line x1="128" y1="42" x2="128" y2="162" stroke="#98a2b3"/>
-          <line x1="198" y1="42" x2="198" y2="162" stroke="#98a2b3"/>
-          <line x1="58" y1="102" x2="268" y2="102" stroke="#98a2b3"/>
-          <rect x="58" y="42" width="140" height="60" fill="#ccfbf1" opacity=".9"/>
-          <rect x="198" y="102" width="70" height="60" fill="#ddd6fe" opacity=".9"/>
-          <text x="110" y="76" font-size="14" fill="#064e3b">部分面积</text>
-          <text x="206" y="136" font-size="14" fill="#5b21b6">部分面积</text>
-          <text x="136" y="190" font-size="14" fill="#1f2937">总面积 = 各部分相加</text>
-        </svg>`,
-        "面积模型适合理解乘法、分配律、分数乘法和代数展开。"
-      );
-    }
-
     function drawDefault() {
       visualCard(
-        "学习结构：从卡点到稳定方法",
+        "解题结构图",
         `<svg viewBox="0 0 320 180" role="img" aria-label="学习结构图">
           <rect x="24" y="62" width="74" height="44" rx="8" fill="#fff" stroke="#98a2b3"/>
           <rect x="123" y="62" width="74" height="44" rx="8" fill="#eef8f6" stroke="#0f766e"/>
@@ -520,18 +423,109 @@
           <polygon points="222,84 214,79 214,89" fill="#667085"/>
           <text x="50" y="140" font-size="13" fill="#667085">先看卡在哪里，再推进一小步</text>
         </svg>`,
-        "可以输入具体题目，我会切换成更贴合的图。"
+        "我会先提问启发。等你说出想法后，再根据需要画出结构图。"
       );
     }
 
-    function renderVisual(text) {
-      const value = `${text || ""}`.toLowerCase();
-      if (/分数|几分之|除法|÷|\/|约分|通分/.test(value)) return drawFraction();
-      if (/函数|坐标|图像|一次|二次|y=|x=/.test(value)) return drawFunction();
-      if (/几何|三角|角|平行|垂直|证明|圆|相似|全等/.test(value)) return drawGeometry();
-      if (/面积|长方形|正方形|乘法|分配律|展开/.test(value)) return drawAreaModel();
-      if (/数轴|负数|小数|大小|比较/.test(value)) return drawNumberLine();
-      return drawDefault();
+    function drawThinking() {
+      visualCard(
+        "先思考，再画图",
+        `<svg viewBox="0 0 320 170" role="img" aria-label="先思考">
+          <rect x="42" y="42" width="236" height="48" rx="8" fill="#fff7ed" stroke="#f97316"/>
+          <text x="160" y="72" text-anchor="middle" font-size="14" fill="#9a3412">先说出你的想法</text>
+          <path d="M88 118 C120 96, 190 96, 224 118" fill="none" stroke="#98a2b3" stroke-width="2" stroke-dasharray="5 4"/>
+          <text x="160" y="142" text-anchor="middle" font-size="12" fill="#667085">回答后，我再判断是否画结构图</text>
+        </svg>`,
+        "请先尝试说：已知什么？要求什么？第一步想怎么做？"
+      );
+    }
+
+    function nodeStyle(type) {
+      const styles = {
+        given: ["#eff6ff", "#1d4ed8"],
+        goal: ["#fff7ed", "#c2410c"],
+        relation: ["#f5f3ff", "#6d28d9"],
+        step: ["#eef8f6", "#0f766e"],
+        result: ["#ecfdf3", "#15803d"],
+        check: ["#f8fafc", "#475467"]
+      };
+      return styles[type] || styles.step;
+    }
+
+    function renderStructureDiagram(diagram) {
+      if (!diagram || !Array.isArray(diagram.nodes) || !diagram.nodes.length) {
+        drawDefault();
+        return;
+      }
+
+      const nodes = diagram.nodes.slice(0, 9);
+      const edges = Array.isArray(diagram.edges) ? diagram.edges.slice(0, 10) : [];
+      const cols = nodes.length <= 4 ? 1 : 2;
+      const nodeW = cols === 1 ? 220 : 132;
+      const nodeH = 50;
+      const gapX = 28;
+      const gapY = 30;
+      const startX = cols === 1 ? 50 : 26;
+      const startY = 28;
+      const positions = {};
+
+      nodes.forEach((node, index) => {
+        const col = cols === 1 ? 0 : index % 2;
+        const row = cols === 1 ? index : Math.floor(index / 2);
+        positions[node.id] = {
+          x: startX + col * (nodeW + gapX),
+          y: startY + row * (nodeH + gapY)
+        };
+      });
+
+      const rows = cols === 1 ? nodes.length : Math.ceil(nodes.length / 2);
+      const height = Math.max(190, startY * 2 + rows * nodeH + (rows - 1) * gapY);
+
+      const edgeSvg = edges.map(edge => {
+        const from = positions[edge.from];
+        const to = positions[edge.to];
+        if (!from || !to) return "";
+        const x1 = from.x + nodeW / 2;
+        const y1 = from.y + nodeH;
+        const x2 = to.x + nodeW / 2;
+        const y2 = to.y;
+        const midY = (y1 + y2) / 2;
+        return `
+          <path d="M${x1} ${y1} C${x1} ${midY}, ${x2} ${midY}, ${x2} ${y2}" fill="none" stroke="#98a2b3" stroke-width="1.7" marker-end="url(#arrow)"/>
+          ${edge.label ? `<text x="${(x1 + x2) / 2}" y="${midY - 4}" text-anchor="middle" font-size="10" fill="#667085">${escapeHtml(edge.label)}</text>` : ""}
+        `;
+      }).join("");
+
+      const nodeSvg = nodes.map(node => {
+        const pos = positions[node.id];
+        const [fill, stroke] = nodeStyle(node.type);
+        return `
+          <rect x="${pos.x}" y="${pos.y}" width="${nodeW}" height="${nodeH}" rx="8" fill="${fill}" stroke="${stroke}" stroke-width="1.6"/>
+          <text x="${pos.x + nodeW / 2}" y="${pos.y + 30}" text-anchor="middle" font-size="12" fill="#1f2937">${escapeHtml(node.label)}</text>
+        `;
+      }).join("");
+
+      visualCard(
+        escapeHtml(diagram.title || "解题结构图"),
+        `<svg viewBox="0 0 320 ${height}" role="img" aria-label="解题结构图">
+          <defs>
+            <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+              <path d="M0,0 L8,4 L0,8 z" fill="#98a2b3"></path>
+            </marker>
+          </defs>
+          ${edgeSvg}
+          ${nodeSvg}
+        </svg>`,
+        "这张图展示的是本题从已知条件到目标结果的推进关系。"
+      );
+    }
+
+    function escapeHtml(value) {
+      return String(value || "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;");
     }
 
     function setQuota(data) {
@@ -586,7 +580,7 @@
 
     async function send(text) {
       addMessage(text, "user");
-      renderVisual(text);
+      drawThinking();
       history.push({ role: "user", content: text });
       const loading = addMessage("正在生成个性化讲解...");
 
@@ -609,6 +603,11 @@
         }
 
         addMessage(data.answer);
+        if (data.diagramAction === "show" || data.diagramAction === "update") {
+          renderStructureDiagram(data.diagram);
+        } else {
+          drawThinking();
+        }
         history.push({ role: "assistant", content: data.answer });
       } catch (error) {
         loading.remove();
@@ -634,8 +633,13 @@
 
     document.querySelector("#draw").addEventListener("click", () => {
       const box = document.querySelector("#question");
-      const lastUser = [...messages.querySelectorAll(".user")].pop();
-      renderVisual(box.value.trim() || lastUser?.textContent || "");
+      const text = box.value.trim();
+      if (text) {
+        send(`我想看这道题的解题结构图，但请先判断是否适合直接画；题目是：${text}`);
+        box.value = "";
+        return;
+      }
+      addMessage("请先输入一道具体题目，或先回答我的启发问题；我会根据情况决定是否画结构图。", "error");
     });
 
     document.querySelector("#plan").addEventListener("click", () => {

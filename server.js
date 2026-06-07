@@ -175,13 +175,62 @@ function systemPrompt(profile) {
     "回答必须使用数学教育本地话语，不能暴露任何内部理论标签或框架名。",
     "禁止在输出中使用这些词：SDE、纠缠、差异序列、结构显露、显露态、六爪、抓核、抓裂缝、改姓、锻造、投放、本体论、空虚混沌、发生链、在 E 中、经 D、成 S。",
     "不要一上来直接给完整答案。先定位卡点，再给一层提示，再要求学生补充条件或第一步；必要时给分层讲解。",
-    "网页右侧有图示板，会自动画出分数条、数轴、函数图像、几何关系或面积模型。讲解时可以自然提醒学生观察图中的切分、位置、变化关系或相等关系。",
-    "当题目适合画图时，优先用'先看图...'、'图里...'、'把这个关系看成...'这样的表达帮助学生建立直观理解。",
+    "网页右侧有解题结构图，但不能一开始就给完整结构图。真正的教学要先让学生思考。",
+    "默认策略：第一次看到具体题目时，先不画完整结构图，只提出 1-2 个启发问题，让学生说已知条件、目标或第一步想法。",
+    "只有在以下情况才画结构图：学生主动要求画图；学生已经回答了自己的想法；学生明显卡住或回答错误；题目复杂到没有图很难继续。",
+    "结构图一旦出现，也应服务于启发，不要直接把所有计算细节和最终答案全暴露。可以先画局部结构，再逐步补全。",
     `学生阶段：${profile.stage || "小学"}。`,
     `学习目标：${profile.goal || "补齐薄弱知识"}。`,
     `当前状态：${profile.state || "局部会做但不稳定"}。`,
-    "输出要求：中文；短而有行动感；每次最多给 3-5 个步骤；适合学生和家长试用。"
+    "输出要求：必须只输出 JSON，不要 Markdown，不要代码块，不要额外解释。",
+    "JSON 格式：{\"answer\":\"给学生看的简短讲解或启发问题\",\"diagramAction\":\"hold|show|update\",\"diagram\":{\"title\":\"结构图标题\",\"nodes\":[{\"id\":\"n1\",\"label\":\"短标签\",\"type\":\"given|goal|relation|step|result|check\"}],\"edges\":[{\"from\":\"n1\",\"to\":\"n2\",\"label\":\"箭头短说明\"}]}}",
+    "diagramAction=hold 时，diagram 可以为 null，表示先不画图，让学生回答。",
+    "diagramAction=show 或 update 时，diagram 必须提供结构图数据。",
+    "nodes 最多 9 个，edges 最多 10 条。label 尽量 4-12 个汉字，避免长句。",
+    "answer 中可以提示学生先看右侧结构图，但不要说 JSON、节点、模型等技术词。"
   ].join("\n");
+}
+
+function extractJsonObject(text) {
+  const raw = String(text || "").trim();
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {}
+
+  const start = raw.indexOf("{");
+  const end = raw.lastIndexOf("}");
+  if (start >= 0 && end > start) {
+    try {
+      return JSON.parse(raw.slice(start, end + 1));
+    } catch {}
+  }
+  return null;
+}
+
+function normalizeDiagram(value) {
+  const diagram = value && typeof value === "object" ? value : {};
+  const nodes = Array.isArray(diagram.nodes) ? diagram.nodes : [];
+  const edges = Array.isArray(diagram.edges) ? diagram.edges : [];
+  const cleanNodes = nodes.slice(0, 9).map((node, index) => ({
+    id: String(node.id || `n${index + 1}`),
+    label: String(node.label || `步骤 ${index + 1}`).slice(0, 32),
+    type: ["given", "goal", "relation", "step", "result", "check"].includes(node.type) ? node.type : "step"
+  }));
+  const ids = new Set(cleanNodes.map(node => node.id));
+  const cleanEdges = edges.slice(0, 10)
+    .map(edge => ({
+      from: String(edge.from || ""),
+      to: String(edge.to || ""),
+      label: String(edge.label || "").slice(0, 24)
+    }))
+    .filter(edge => ids.has(edge.from) && ids.has(edge.to));
+
+  return {
+    title: String(diagram.title || "解题结构图").slice(0, 40),
+    nodes: cleanNodes,
+    edges: cleanEdges
+  };
 }
 
 async function callDeepSeek(messages, profile) {
@@ -214,11 +263,24 @@ async function callDeepSeek(messages, profile) {
     throw new Error(data.error?.message || data.message || `DeepSeek API 错误：${response.status}`);
   }
 
-  const answer = (data.choices?.[0]?.message?.content || "").trim();
-  if (!answer) {
+  const raw = (data.choices?.[0]?.message?.content || "").trim();
+  if (!raw) {
     throw new Error("模型返回为空，请检查模型名或账号权限");
   }
-  return answer;
+  const parsed = extractJsonObject(raw);
+  if (!parsed || typeof parsed !== "object") {
+    return {
+      answer: raw,
+      diagramAction: "hold",
+      diagram: null
+    };
+  }
+  const action = ["hold", "show", "update"].includes(parsed.diagramAction) ? parsed.diagramAction : "hold";
+  return {
+    answer: String(parsed.answer || raw).trim(),
+    diagramAction: action,
+    diagram: action === "hold" ? null : normalizeDiagram(parsed.diagram)
+  };
 }
 
 async function handleQuota(req, res) {
@@ -336,9 +398,11 @@ async function handleChat(req, res) {
       return;
     }
 
-    const answer = await callDeepSeek(messages, profile);
+    const result = await callDeepSeek(messages, profile);
     sendJson(res, 200, {
-      answer,
+      answer: result.answer,
+      diagramAction: result.diagramAction,
+      diagram: result.diagram,
       limit: DAILY_LIMIT,
       remaining: remainingFor(req, identity),
       user: publicUser(user)
