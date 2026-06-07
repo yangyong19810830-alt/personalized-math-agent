@@ -216,7 +216,7 @@
       border-top: 1px solid var(--line);
       padding: 12px;
       display: grid;
-      grid-template-columns: auto 1fr auto auto;
+      grid-template-columns: auto 1fr auto;
       gap: 10px;
       align-items: end;
     }
@@ -401,7 +401,7 @@
           <img id="previewImage" alt="题目图片预览" />
           <div>
             <div class="small" id="previewText">已选择题目图片</div>
-            <button class="btn" id="recognizeImage">识别图片题目</button>
+            <button class="btn" id="recognizeImage">重新识别</button>
             <button class="btn" id="clearImage">清除</button>
           </div>
         </div>
@@ -409,8 +409,7 @@
           <label class="btn file-btn">上传题图
             <input id="imageInput" type="file" accept="image/*" />
           </label>
-          <textarea id="question" placeholder="输入一道题、一个不会的知识点，或让智能体安排今天的学习。"></textarea>
-          <button class="btn" id="draw">画图理解</button>
+          <textarea id="question" placeholder="输入题目，或直接 Ctrl+V 粘贴题目截图。"></textarea>
           <button class="btn primary" id="send">发送</button>
         </div>
       </section>
@@ -667,7 +666,7 @@
     async function recognizeSelectedImage() {
       if (!selectedImageData) {
         addMessage("请先上传一张题目图片。", "error");
-        return;
+        return false;
       }
       const loading = addMessage("正在识别题目图片...");
       try {
@@ -680,14 +679,32 @@
         loading.remove();
         if (!res.ok) {
           addMessage(data.error || "图片识别失败。", "error");
-          return;
+          return false;
         }
         document.querySelector("#question").value = data.text || "";
         addMessage(`我识别到的题目是：\n${data.text}\n\n你可以先检查一下是否识别正确，再点发送。`);
+        return true;
       } catch {
         loading.remove();
         addMessage("图片识别服务暂时不可用。你可以先手动输入题目文字。", "error");
+        return false;
       }
+    }
+
+    async function acceptImageFile(file, source = "上传") {
+      if (!file || !file.type.startsWith("image/")) {
+        addMessage("请提供图片格式的题目截图。", "error");
+        return false;
+      }
+      if (file.size > 4 * 1024 * 1024) {
+        addMessage("图片太大了，请上传或粘贴 4MB 以内的题目图片。", "error");
+        return false;
+      }
+      selectedImageData = await fileToDataUrl(file);
+      previewImage.src = selectedImageData;
+      imagePreview.classList.add("show");
+      document.querySelector("#previewText").textContent = `已${source}题目图片，正在自动识别。`;
+      return true;
     }
 
     async function send(text) {
@@ -743,35 +760,27 @@
       send(text);
     });
 
-    document.querySelector("#draw").addEventListener("click", () => {
-      const box = document.querySelector("#question");
-      const text = box.value.trim();
-      if (text) {
-        send(`我想看这道题的解题结构图，但请先判断是否适合直接画；题目是：${text}`);
-        box.value = "";
-        return;
-      }
-      addMessage("请先输入一道具体题目，或先回答我的启发问题；我会根据情况决定是否画结构图。", "error");
-    });
-
     document.querySelector("#plan").addEventListener("click", () => {
       send("请根据我的阶段、目标和当前状态，安排今天的数学学习。");
     });
 
     document.querySelector("#imageInput").addEventListener("change", async event => {
       const file = event.target.files?.[0];
-      if (!file) return;
-      if (!file.type.startsWith("image/")) {
-        addMessage("请上传图片文件。", "error");
-        return;
+      if (file && await acceptImageFile(file, "上传")) {
+        await recognizeSelectedImage();
       }
-      if (file.size > 4 * 1024 * 1024) {
-        addMessage("图片太大了，请上传 4MB 以内的题目图片。", "error");
-        return;
+    });
+
+    document.querySelector("#question").addEventListener("paste", async event => {
+      const items = Array.from(event.clipboardData?.items || []);
+      const imageItem = items.find(item => item.type.startsWith("image/"));
+      if (!imageItem) return;
+      event.preventDefault();
+      const file = imageItem.getAsFile();
+      if (await acceptImageFile(file, "粘贴")) {
+        addMessage("已收到你粘贴的题目截图，我先帮你识别成文字。");
+        await recognizeSelectedImage();
       }
-      selectedImageData = await fileToDataUrl(file);
-      previewImage.src = selectedImageData;
-      imagePreview.classList.add("show");
     });
 
     document.querySelector("#recognizeImage").addEventListener("click", recognizeSelectedImage);
