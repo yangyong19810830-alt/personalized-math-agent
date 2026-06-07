@@ -4,6 +4,18 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>个性化数学学习智能体</title>
+  <script>
+    window.MathJax = {
+      tex: {
+        inlineMath: [["$", "$"], ["\\(", "\\)"]],
+        displayMath: [["$$", "$$"], ["\\[", "\\]"]]
+      },
+      options: {
+        skipHtmlTags: ["script", "noscript", "style", "textarea", "pre", "code"]
+      }
+    };
+  </script>
+  <script async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js"></script>
   <style>
     :root {
       --ink: #1f2937;
@@ -182,8 +194,9 @@
       border-radius: 8px;
       padding: 11px 12px;
       line-height: 1.6;
-      white-space: pre-line;
+      white-space: pre-wrap;
       font-size: 14px;
+      overflow-wrap: anywhere;
     }
     .msg.agent {
       border: 1px solid #b9e3dc;
@@ -203,8 +216,38 @@
       border-top: 1px solid var(--line);
       padding: 12px;
       display: grid;
-      grid-template-columns: 1fr auto auto;
+      grid-template-columns: auto 1fr auto auto;
       gap: 10px;
+      align-items: end;
+    }
+    .file-btn {
+      position: relative;
+      overflow: hidden;
+      display: inline-grid;
+      place-items: center;
+      min-height: 44px;
+    }
+    .file-btn input {
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      cursor: pointer;
+    }
+    .preview {
+      border-top: 1px solid var(--line);
+      padding: 10px 12px;
+      display: none;
+      gap: 10px;
+      align-items: center;
+      background: #fff;
+    }
+    .preview.show { display: flex; }
+    .preview img {
+      width: 72px;
+      height: 72px;
+      object-fit: cover;
+      border-radius: 8px;
+      border: 1px solid var(--line);
     }
     .visual {
       min-height: 640px;
@@ -354,7 +397,18 @@
 
       <section class="panel chat">
         <div class="messages" id="messages"></div>
+        <div class="preview" id="imagePreview">
+          <img id="previewImage" alt="题目图片预览" />
+          <div>
+            <div class="small" id="previewText">已选择题目图片</div>
+            <button class="btn" id="recognizeImage">识别图片题目</button>
+            <button class="btn" id="clearImage">清除</button>
+          </div>
+        </div>
         <div class="composer">
+          <label class="btn file-btn">上传题图
+            <input id="imageInput" type="file" accept="image/*" />
+          </label>
           <textarea id="question" placeholder="输入一道题、一个不会的知识点，或让智能体安排今天的学习。"></textarea>
           <button class="btn" id="draw">画图理解</button>
           <button class="btn primary" id="send">发送</button>
@@ -374,11 +428,14 @@
     let history = [];
     let authToken = localStorage.getItem("math_agent_token") || "";
     let currentUser = null;
+    let selectedImageData = "";
     const messages = document.querySelector("#messages");
     const quota = document.querySelector("#quota");
     const authPanel = document.querySelector("#authPanel");
     const mainApp = document.querySelector("#mainApp");
     const visualBoard = document.querySelector("#visualBoard");
+    const imagePreview = document.querySelector("#imagePreview");
+    const previewImage = document.querySelector("#previewImage");
 
     function profile() {
       return {
@@ -391,10 +448,30 @@
     function addMessage(text, role = "agent") {
       const div = document.createElement("div");
       div.className = `msg ${role}`;
-      div.textContent = text;
+      div.textContent = normalizeMathText(text);
       messages.appendChild(div);
       messages.scrollTop = messages.scrollHeight;
+      if (window.MathJax?.typesetPromise) {
+        window.MathJax.typesetPromise([div]).catch(() => {});
+      }
       return div;
+    }
+
+    function normalizeMathText(text) {
+      return String(text || "")
+        .replace(/\\dfrac\{([^{}]+)\}\{([^{}]+)\}/g, "($1)/($2)")
+        .replace(/\\frac\{([^{}]+)\}\{([^{}]+)\}/g, "($1)/($2)")
+        .replace(/\\leqslant|\\leq/g, "≤")
+        .replace(/\\geqslant|\\geq/g, "≥")
+        .replace(/\\neq/g, "≠")
+        .replace(/\\times/g, "×")
+        .replace(/\\div/g, "÷")
+        .replace(/\\begin\{cases\}/g, "")
+        .replace(/\\end\{cases\}/g, "")
+        .replace(/\\\\/g, "\n")
+        .replace(/\\text\{([^{}]+)\}/g, "$1")
+        .replace(/\$/g, "")
+        .trim();
     }
 
     function visualCard(title, svg, legend) {
@@ -578,6 +655,41 @@
       updateAuthView(data);
     }
 
+    function fileToDataUrl(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ""));
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+    }
+
+    async function recognizeSelectedImage() {
+      if (!selectedImageData) {
+        addMessage("请先上传一张题目图片。", "error");
+        return;
+      }
+      const loading = addMessage("正在识别题目图片...");
+      try {
+        const res = await fetch("/api/vision", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...authHeaders() },
+          body: JSON.stringify({ image: selectedImageData })
+        });
+        const data = await res.json();
+        loading.remove();
+        if (!res.ok) {
+          addMessage(data.error || "图片识别失败。", "error");
+          return;
+        }
+        document.querySelector("#question").value = data.text || "";
+        addMessage(`我识别到的题目是：\n${data.text}\n\n你可以先检查一下是否识别正确，再点发送。`);
+      } catch {
+        loading.remove();
+        addMessage("图片识别服务暂时不可用。你可以先手动输入题目文字。", "error");
+      }
+    }
+
     async function send(text) {
       addMessage(text, "user");
       drawThinking();
@@ -644,6 +756,30 @@
 
     document.querySelector("#plan").addEventListener("click", () => {
       send("请根据我的阶段、目标和当前状态，安排今天的数学学习。");
+    });
+
+    document.querySelector("#imageInput").addEventListener("change", async event => {
+      const file = event.target.files?.[0];
+      if (!file) return;
+      if (!file.type.startsWith("image/")) {
+        addMessage("请上传图片文件。", "error");
+        return;
+      }
+      if (file.size > 4 * 1024 * 1024) {
+        addMessage("图片太大了，请上传 4MB 以内的题目图片。", "error");
+        return;
+      }
+      selectedImageData = await fileToDataUrl(file);
+      previewImage.src = selectedImageData;
+      imagePreview.classList.add("show");
+    });
+
+    document.querySelector("#recognizeImage").addEventListener("click", recognizeSelectedImage);
+    document.querySelector("#clearImage").addEventListener("click", () => {
+      selectedImageData = "";
+      previewImage.removeAttribute("src");
+      imagePreview.classList.remove("show");
+      document.querySelector("#imageInput").value = "";
     });
 
     document.querySelector("#register").addEventListener("click", () => authRequest("/api/register"));
