@@ -401,7 +401,7 @@
           <img id="previewImage" alt="题目图片预览" />
           <div>
             <div class="small" id="previewText">已选择题目图片</div>
-            <button class="btn" id="recognizeImage">重新识别</button>
+            <button class="btn" id="recognizeImage">重新识别并提问</button>
             <button class="btn" id="clearImage">清除</button>
           </div>
         </div>
@@ -681,8 +681,13 @@
           addMessage(data.error || "图片识别失败。", "error");
           return false;
         }
-        document.querySelector("#question").value = data.text || "";
-        addMessage(`我识别到的题目是：\n${data.text}\n\n你可以先检查一下是否识别正确，再点发送。`);
+        const recognizedText = String(data.text || "").trim();
+        if (!recognizedText) {
+          addMessage("图片识别完成了，但没有读到清晰的题目内容。可以换一张更清楚的图片，或手动输入题目。", "error");
+          return false;
+        }
+        document.querySelector("#question").value = "";
+        await send(recognizedText, { displayText: "我上传了一张题目图片" });
         return true;
       } catch {
         loading.remove();
@@ -703,12 +708,12 @@
       selectedImageData = await fileToDataUrl(file);
       previewImage.src = selectedImageData;
       imagePreview.classList.add("show");
-      document.querySelector("#previewText").textContent = `已${source}题目图片，正在自动识别。`;
+      document.querySelector("#previewText").textContent = `已${source}题目图片，正在自动识别并开始提问。`;
       return true;
     }
 
-    async function send(text) {
-      addMessage(text, "user");
+    async function send(text, options = {}) {
+      addMessage(options.displayText || text, "user");
       drawThinking();
       history.push({ role: "user", content: text });
       const loading = addMessage("正在生成个性化讲解...");
@@ -778,7 +783,6 @@
       event.preventDefault();
       const file = imageItem.getAsFile();
       if (await acceptImageFile(file, "粘贴")) {
-        addMessage("已收到你粘贴的题目截图，我先帮你识别成文字。");
         await recognizeSelectedImage();
       }
     });
