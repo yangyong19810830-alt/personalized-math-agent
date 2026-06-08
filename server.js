@@ -132,18 +132,28 @@ function sendJson(res, status, body) {
   res.end(data);
 }
 
-function readBody(req) {
+function readBody(req, maxBytes = 1024 * 1024) {
   return new Promise((resolve, reject) => {
-    let body = "";
+    const chunks = [];
+    let total = 0;
+    let finished = false;
     req.on("data", chunk => {
-      body += chunk;
-      if (body.length > 1024 * 1024) {
+      if (finished) return;
+      total += chunk.length;
+      if (total > maxBytes) {
+        finished = true;
         reject(new Error("请求内容太大"));
-        req.destroy();
+        req.resume();
+        return;
       }
+      chunks.push(chunk);
     });
-    req.on("end", () => resolve(body));
-    req.on("error", reject);
+    req.on("end", () => {
+      if (!finished) resolve(Buffer.concat(chunks).toString("utf8"));
+    });
+    req.on("error", error => {
+      if (!finished) reject(error);
+    });
   });
 }
 
@@ -472,7 +482,7 @@ async function handleVision(req, res) {
       sendJson(res, 401, { error: "请先登录后再使用图片识别功能" });
       return;
     }
-    const body = JSON.parse(await readBody(req) || "{}");
+    const body = JSON.parse(await readBody(req, 8 * 1024 * 1024) || "{}");
     const image = String(body.image || "");
     if (!image.startsWith("data:image/")) {
       sendJson(res, 400, { error: "请上传有效的题目图片" });
