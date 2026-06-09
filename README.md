@@ -6,6 +6,7 @@
 
 - 网页聊天界面
 - 服务端 DeepSeek 转发
+- 小学题默认 DeepSeek V4 Flash，中学及以上自动 DeepSeek V4 Pro
 - API Key 服务端隐藏
 - 邀请码注册、登录、退出
 - 1 天试用和 1 个月试用两类邀请码
@@ -23,7 +24,10 @@
 
 ```txt
 DEEPSEEK_API_KEY=你的 DeepSeek API Key
-DEEPSEEK_MODEL=deepseek-chat
+DEEPSEEK_BASE_URL=https://api.deepseek.com
+DEEPSEEK_MODEL=deepseek-v4-flash
+DEEPSEEK_PRO_MODEL=deepseek-v4-pro
+DEEPSEEK_PRO_FALLBACK=true
 CHAT_LIMIT_PER_DAY=100
 ADMIN_SECRET=你的管理员口令
 INVITE_CODES_1_DAY=DAY001,DAY002,DAY003
@@ -52,6 +56,8 @@ TTS_VOLUME=1
 ```
 
 `CHAT_LIMIT_PER_DAY` 可以改成你想给每个账号每天使用的次数。
+
+`DEEPSEEK_MODEL` 是普通模型，默认用于小学和简单题；`DEEPSEEK_PRO_MODEL` 是强推理模型，默认用于初中、高中、大学，以及几何证明、函数、参数、分类讨论、导数、数列等更容易出错的题。`DEEPSEEK_PRO_FALLBACK=true` 表示 Pro 暂时不可用时自动回退普通模型，避免网站完全不可用。
 
 `ADMIN_SECRET` 是管理员生成邀请码时使用的口令。部署后打开 `/admin.html`，输入这个口令，就可以自动生成随机邀请码。
 
