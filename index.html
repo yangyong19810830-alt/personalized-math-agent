@@ -216,9 +216,27 @@
       border-top: 1px solid var(--line);
       padding: 12px;
       display: grid;
-      grid-template-columns: auto 1fr auto;
+      grid-template-columns: auto 1fr auto auto;
       gap: 10px;
       align-items: end;
+    }
+    .voice-btn.listening {
+      border-color: #f97316;
+      color: #9a3412;
+      background: #fff7ed;
+    }
+    .msg-speak {
+      display: block;
+      width: max-content;
+      margin-top: 8px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 4px 10px;
+      background: #fff;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.4;
+      cursor: pointer;
     }
     .file-btn {
       position: relative;
@@ -414,6 +432,7 @@
             <input id="imageInput" type="file" accept="image/*" />
           </label>
           <textarea id="question" placeholder="输入题目，或直接 Ctrl+V 粘贴题目截图。"></textarea>
+          <button class="btn voice-btn" id="voiceInput">语音输入</button>
           <button class="btn primary" id="send">发送</button>
         </div>
       </section>
@@ -439,6 +458,10 @@
     const visualBoard = document.querySelector("#visualBoard");
     const imagePreview = document.querySelector("#imagePreview");
     const previewImage = document.querySelector("#previewImage");
+    const voiceButton = document.querySelector("#voiceInput");
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    let recognition = null;
+    let listening = false;
 
     function profile() {
       return {
@@ -451,7 +474,16 @@
     function addMessage(text, role = "agent") {
       const div = document.createElement("div");
       div.className = `msg ${role}`;
-      div.textContent = normalizeMathText(text);
+      const normalized = normalizeMathText(text);
+      div.textContent = normalized;
+      if (role === "agent" && normalized && !normalized.startsWith("正在")) {
+        const speakButton = document.createElement("button");
+        speakButton.className = "msg-speak";
+        speakButton.type = "button";
+        speakButton.textContent = "朗读";
+        speakButton.addEventListener("click", () => speakText(normalized));
+        div.appendChild(speakButton);
+      }
       messages.appendChild(div);
       messages.scrollTop = messages.scrollHeight;
       if (window.MathJax?.typesetPromise) {
@@ -475,6 +507,78 @@
         .replace(/\\text\{([^{}]+)\}/g, "$1")
         .replace(/\$/g, "")
         .trim();
+    }
+
+    function speakText(text) {
+      if (!("speechSynthesis" in window)) {
+        addMessage("当前浏览器不支持朗读功能，可以换 Chrome 或 Edge 再试。", "error");
+        return;
+      }
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(normalizeMathText(text));
+      utterance.lang = "zh-CN";
+      utterance.rate = 0.92;
+      utterance.pitch = 1;
+      window.speechSynthesis.speak(utterance);
+    }
+
+    function setListening(active) {
+      listening = active;
+      voiceButton.classList.toggle("listening", active);
+      voiceButton.textContent = active ? "停止语音" : "语音输入";
+    }
+
+    function appendQuestionText(text) {
+      const box = document.querySelector("#question");
+      const current = box.value.trim();
+      box.value = current ? `${current}\n${text}` : text;
+      box.focus();
+    }
+
+    function startVoiceInput() {
+      if (!SpeechRecognition) {
+        addMessage("当前浏览器不支持语音输入。建议用 Chrome 或 Edge 打开网站再试。", "error");
+        return;
+      }
+      if (listening && recognition) {
+        recognition.stop();
+        return;
+      }
+
+      recognition = new SpeechRecognition();
+      recognition.lang = "zh-CN";
+      recognition.interimResults = true;
+      recognition.continuous = false;
+
+      let finalText = "";
+      recognition.onstart = () => setListening(true);
+      recognition.onresult = event => {
+        let interimText = "";
+        for (let index = event.resultIndex; index < event.results.length; index += 1) {
+          const transcript = event.results[index][0].transcript.trim();
+          if (event.results[index].isFinal) {
+            finalText += transcript;
+          } else {
+            interimText += transcript;
+          }
+        }
+        const preview = finalText || interimText;
+        if (preview) {
+          document.querySelector("#question").placeholder = `正在听：${preview}`;
+        }
+      };
+      recognition.onerror = () => {
+        setListening(false);
+        document.querySelector("#question").placeholder = "输入题目，或直接 Ctrl+V 粘贴题目截图。";
+        addMessage("这次没有听清楚，可以靠近一点再试。", "error");
+      };
+      recognition.onend = () => {
+        setListening(false);
+        document.querySelector("#question").placeholder = "输入题目，或直接 Ctrl+V 粘贴题目截图。";
+        const text = finalText.trim();
+        if (text) appendQuestionText(text);
+      };
+      recognition.start();
     }
 
     function visualCard(title, svg, legend) {
@@ -806,6 +910,8 @@
       box.value = "";
       send(text);
     });
+
+    voiceButton.addEventListener("click", startVoiceInput);
 
     document.querySelector("#plan").addEventListener("click", () => {
       send("请根据我的阶段、目标和当前状态，安排今天的数学学习。");
