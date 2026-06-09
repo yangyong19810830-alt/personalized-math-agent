@@ -12,6 +12,14 @@ const VISION_API_KEY = process.env.VISION_API_KEY || "";
 const VISION_PROVIDER = (process.env.VISION_PROVIDER || "zhipu").toLowerCase();
 const VISION_BASE_URL = (process.env.VISION_BASE_URL || "https://open.bigmodel.cn/api/paas/v4").replace(/\/$/, "");
 const VISION_MODEL = process.env.VISION_MODEL || "glm-4v-plus-0111";
+const TTS_PROVIDER = (process.env.TTS_PROVIDER || "zhipu").toLowerCase();
+const TTS_API_KEY = process.env.TTS_API_KEY || process.env.ZHIPU_API_KEY || VISION_API_KEY || "";
+const TTS_BASE_URL = (process.env.TTS_BASE_URL || "https://open.bigmodel.cn/api/paas/v4").replace(/\/$/, "");
+const TTS_MODEL = process.env.TTS_MODEL || "glm-tts";
+const TTS_VOICE = process.env.TTS_VOICE || "xiaochen";
+const TTS_SPEED = Number(process.env.TTS_SPEED || 0.92);
+const TTS_VOLUME = Number(process.env.TTS_VOLUME || 1.0);
+const TTS_INSTRUCTIONS = process.env.TTS_INSTRUCTIONS || "用自然、温和、清晰的中文老师语气朗读。语速稍慢，数学符号读得清楚，给学生稳定感。";
 const DAILY_LIMIT = Number(process.env.CHAT_LIMIT_PER_DAY || 100);
 const ADMIN_SECRET = process.env.ADMIN_SECRET || "";
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
@@ -276,6 +284,15 @@ function sendJson(res, status, body) {
   res.end(data);
 }
 
+function sendBinary(res, status, buffer, contentType) {
+  res.writeHead(status, {
+    "Content-Type": contentType,
+    "Content-Length": buffer.length,
+    "Cache-Control": "no-store"
+  });
+  res.end(buffer);
+}
+
 function readBody(req, maxBytes = 1024 * 1024) {
   return new Promise((resolve, reject) => {
     const chunks = [];
@@ -485,6 +502,49 @@ async function callVision(image) {
   const text = (data.choices?.[0]?.message?.content || "").trim();
   if (!text) throw new Error("图片识别结果为空，请换一张更清晰的图片");
   return text;
+}
+
+async function callTts(text) {
+  if (!TTS_API_KEY) {
+    throw new Error("还没有配置自然人声朗读模型");
+  }
+  const input = String(text || "").replace(/\s+/g, " ").trim().slice(0, 1200);
+  if (!input) throw new Error("缺少朗读内容");
+
+  const payload = TTS_PROVIDER === "openai"
+    ? {
+        model: TTS_MODEL,
+        voice: TTS_VOICE,
+        input,
+        instructions: TTS_INSTRUCTIONS,
+        response_format: "mp3"
+      }
+    : {
+        model: TTS_MODEL,
+        voice: TTS_VOICE,
+        input,
+        response_format: "wav",
+        speed: TTS_SPEED,
+        volume: TTS_VOLUME
+      };
+
+  const response = await fetch(`${TTS_BASE_URL}/audio/speech`, {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${TTS_API_KEY}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(payload)
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => "");
+    throw new Error(errorText || `语音生成 API 错误：${response.status}`);
+  }
+  return {
+    audio: Buffer.from(await response.arrayBuffer()),
+    contentType: TTS_PROVIDER === "openai" ? "audio/mpeg" : "audio/wav"
+  };
 }
 
 async function handleQuota(req, res) {
@@ -717,6 +777,30 @@ async function handleVision(req, res) {
   }
 }
 
+async function handleTts(req, res) {
+  try {
+    const user = getUserFromRequest(req);
+    if (!user) {
+      sendJson(res, 401, { error: "请先登录后再使用朗读功能" });
+      return;
+    }
+    if (!isTrialActive(user)) {
+      sendJson(res, 403, { error: "试用期已经结束。请联系老师或管理员获取新的试用资格。" });
+      return;
+    }
+    const body = JSON.parse(await readBody(req) || "{}");
+    const text = String(body.text || "").trim();
+    if (!text) {
+      sendJson(res, 400, { error: "缺少朗读内容" });
+      return;
+    }
+    const result = await callTts(text);
+    sendBinary(res, 200, result.audio, result.contentType);
+  } catch (error) {
+    sendJson(res, 500, { error: error.message || "语音生成失败" });
+  }
+}
+
 const server = http.createServer((req, res) => {
   if (req.method === "POST" && req.url === "/api/register") {
     handleRegister(req, res);
@@ -748,6 +832,10 @@ const server = http.createServer((req, res) => {
   }
   if (req.method === "POST" && req.url === "/api/vision") {
     handleVision(req, res);
+    return;
+  }
+  if (req.method === "POST" && req.url === "/api/tts") {
+    handleTts(req, res);
     return;
   }
   if (req.method === "GET") {
