@@ -328,7 +328,7 @@
     </header>
 
     <section class="panel auth" id="authPanel">
-      <div class="head"><h2>登录后开始试用</h2></div>
+      <div class="head"><h2>凭邀请码开始试用</h2></div>
       <div class="body">
         <div class="field">
           <label for="authName">昵称</label>
@@ -342,11 +342,15 @@
           <label for="authPassword">密码</label>
           <input id="authPassword" type="password" placeholder="至少 6 位" />
         </div>
+        <div class="field">
+          <label for="inviteCode">邀请码</label>
+          <input id="inviteCode" placeholder="注册时填写，登录不需要" />
+        </div>
         <div class="auth-actions">
           <button class="btn primary" id="register">注册并登录</button>
           <button class="btn" id="login">登录</button>
         </div>
-        <p class="small">账号用于记录每日试用次数。请不要使用常用重要密码。</p>
+        <p class="small">新用户需要邀请码才能注册试用。账号用于记录每日试用次数，请不要使用常用重要密码。</p>
       </div>
     </section>
 
@@ -606,7 +610,13 @@
 
     function setQuota(data) {
       if (!data || typeof data.remaining === "undefined") return;
-      quota.textContent = `今日剩余：${data.remaining}/${data.limit} 次`;
+      const trial = data.user?.trial;
+      if (trial && !trial.active) {
+        quota.textContent = "试用已结束";
+        return;
+      }
+      const trialText = trial?.remainingDays ? `｜试用剩余 ${trial.remainingDays} 天` : "";
+      quota.textContent = `今日剩余：${data.remaining}/${data.limit} 次${trialText}`;
     }
 
     function authHeaders() {
@@ -620,7 +630,12 @@
       authPanel.classList.toggle("hidden", Boolean(currentUser));
       mainApp.classList.toggle("hidden", !currentUser);
       if (currentUser && !messages.children.length) {
-        addMessage(`你好，${currentUser.name}。你可以发一道题，也可以让我安排今天的学习。我会先定位卡点，再给合适提示，帮助学生形成稳定方法。`);
+        if (currentUser.trial && !currentUser.trial.active) {
+          addMessage(`你好，${currentUser.name}。这个账号的试用期已经结束，请联系老师或管理员获取新的试用资格。`, "error");
+        } else {
+          const trialDays = currentUser.trial?.remainingDays ? `当前试用剩余 ${currentUser.trial.remainingDays} 天。` : "";
+          addMessage(`你好，${currentUser.name}。${trialDays}你可以发一道题，也可以让我安排今天的学习。我会先定位卡点，再给合适提示，帮助学生形成稳定方法。`);
+        }
       }
     }
 
@@ -637,7 +652,8 @@
       const payload = {
         name: document.querySelector("#authName").value.trim(),
         email: document.querySelector("#authEmail").value.trim(),
-        password: document.querySelector("#authPassword").value
+        password: document.querySelector("#authPassword").value,
+        inviteCode: document.querySelector("#inviteCode").value.trim()
       };
       const res = await fetch(path, {
         method: "POST",
