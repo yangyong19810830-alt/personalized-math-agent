@@ -7,7 +7,9 @@
 - 网页聊天界面
 - 服务端 DeepSeek 转发
 - API Key 服务端隐藏
-- 用户注册、登录、退出
+- 邀请码注册、登录、退出
+- 1 天试用和 1 个月试用两类邀请码
+- 管理员网页自动生成随机邀请码
 - 每个账号每日对话次数限制
 - 自动判断是否需要展示解题结构图
 - 题目图片上传和对话框 Ctrl+V 粘贴识别
@@ -22,6 +24,9 @@
 DEEPSEEK_API_KEY=你的 DeepSeek API Key
 DEEPSEEK_MODEL=deepseek-chat
 CHAT_LIMIT_PER_DAY=20
+ADMIN_SECRET=你的管理员口令
+INVITE_CODES_1_DAY=DAY001,DAY002,DAY003
+INVITE_CODES_1_MONTH=MONTH001,MONTH002,MONTH003
 ```
 
 如果需要图片识别，还需要配置视觉模型：
@@ -34,6 +39,10 @@ VISION_MODEL=glm-4v-plus-0111
 ```
 
 `CHAT_LIMIT_PER_DAY` 可以改成你想给每个账号每天使用的次数。
+
+`ADMIN_SECRET` 是管理员生成邀请码时使用的口令。部署后打开 `/admin.html`，输入这个口令，就可以自动生成随机邀请码。
+
+`INVITE_CODES_1_DAY` 和 `INVITE_CODES_1_MONTH` 是可选的手工邀请码列表，适合临时预置少量邀请码。多个邀请码用英文逗号隔开。每个邀请码注册成功后会被占用，不能再次注册。
 
 ## 本地运行
 
@@ -60,9 +69,24 @@ Start Command: npm start
 Node Version: 18 或更高
 ```
 
-## 账号与次数限制
+## 邀请码、账号与次数限制
 
-当前账号数据保存在服务端本地 `data/users.json`，次数限制使用服务端内存保存，适合试用版、小范围体验和家长内测。
+当前注册必须填写邀请码。邀请码分两类：
+
+- `INVITE_CODES_1_DAY`：注册后可试用 1 天
+- `INVITE_CODES_1_MONTH`：注册后可试用 1 个月
+
+管理员也可以打开：
+
+```txt
+https://你的域名/admin.html
+```
+
+输入 `ADMIN_SECRET` 后，自动生成 1 天试用或 1 个月试用的邀请码。系统生成的邀请码保存在 `data/invites.json`，注册成功后会自动标记为已使用。
+
+账号数据保存在服务端本地 `data/users.json`，其中会记录邀请码、试用类型、试用开始时间和试用截止时间。次数限制使用服务端内存保存，适合试用版、小范围体验和家长内测。
+
+试用期结束后，账号仍可登录，但不能继续对话或识图，需要联系管理员获取新的试用资格。
 
 Render 免费服务重新部署或重启后，本地文件和内存状态可能丢失。正式开放给更多用户前，建议升级为数据库或 Redis：
 

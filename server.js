@@ -13,10 +13,15 @@ const VISION_PROVIDER = (process.env.VISION_PROVIDER || "zhipu").toLowerCase();
 const VISION_BASE_URL = (process.env.VISION_BASE_URL || "https://open.bigmodel.cn/api/paas/v4").replace(/\/$/, "");
 const VISION_MODEL = process.env.VISION_MODEL || "glm-4v-plus-0111";
 const DAILY_LIMIT = Number(process.env.CHAT_LIMIT_PER_DAY || 20);
+const ADMIN_SECRET = process.env.ADMIN_SECRET || "";
+const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+const ONE_DAY_INVITE_CODES = parseInviteCodes(process.env.INVITE_CODES_1_DAY || process.env.INVITE_CODES_DAY || "");
+const ONE_MONTH_INVITE_CODES = parseInviteCodes(process.env.INVITE_CODES_1_MONTH || process.env.INVITE_CODES_MONTH || "");
 const quota = new Map();
 const sessions = new Map();
 const DATA_DIR = path.join(ROOT, "data");
 const USERS_FILE = path.join(DATA_DIR, "users.json");
+const INVITES_FILE = path.join(DATA_DIR, "invites.json");
 
 const mime = {
   ".html": "text/html; charset=utf-8",
@@ -35,6 +40,7 @@ function today() {
 function ensureDataStore() {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
   if (!fs.existsSync(USERS_FILE)) fs.writeFileSync(USERS_FILE, "[]", "utf8");
+  if (!fs.existsSync(INVITES_FILE)) fs.writeFileSync(INVITES_FILE, "[]", "utf8");
 }
 
 function readUsers() {
@@ -51,8 +57,145 @@ function writeUsers(users) {
   fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2), "utf8");
 }
 
+function readInvites() {
+  ensureDataStore();
+  try {
+    return JSON.parse(fs.readFileSync(INVITES_FILE, "utf8"));
+  } catch {
+    return [];
+  }
+}
+
+function writeInvites(invites) {
+  ensureDataStore();
+  fs.writeFileSync(INVITES_FILE, JSON.stringify(invites, null, 2), "utf8");
+}
+
 function normalizeEmail(email) {
   return String(email || "").trim().toLowerCase();
+}
+
+function normalizeInviteCode(code) {
+  return String(code || "").trim().toUpperCase();
+}
+
+function parseInviteCodes(value) {
+  return new Set(String(value || "")
+    .split(/[\s,，;；]+/)
+    .map(normalizeInviteCode)
+    .filter(Boolean));
+}
+
+function invitePlanFor(code) {
+  const normalized = normalizeInviteCode(code);
+  if (!normalized) return null;
+  if (ONE_DAY_INVITE_CODES.has(normalized)) {
+    return { type: "one_day", label: "1 天试用", days: 1 };
+  }
+  if (ONE_MONTH_INVITE_CODES.has(normalized)) {
+    return { type: "one_month", label: "1 个月试用", days: 30 };
+  }
+  return null;
+}
+
+function generatedInvitePlan(invite) {
+  if (!invite) return null;
+  if (invite.type === "one_day") {
+    return { type: "one_day", label: "1 天试用", days: 1 };
+  }
+  if (invite.type === "one_month") {
+    return { type: "one_month", label: "1 个月试用", days: 30 };
+  }
+  return null;
+}
+
+function findInviteAccess(users, code) {
+  const normalized = normalizeInviteCode(code);
+  const generated = readInvites().find(invite => normalizeInviteCode(invite.code) === normalized);
+  if (generated) {
+    if (generated.usedBy) {
+      return { error: "这个邀请码已经被使用，请更换新的邀请码" };
+    }
+    const plan = generatedInvitePlan(generated);
+    if (!plan) return { error: "邀请码类型异常，请联系管理员" };
+    return { source: "generated", plan };
+  }
+
+  const envPlan = invitePlanFor(normalized);
+  if (envPlan) {
+    if (inviteCodeUsed(users, normalized)) {
+      return { error: "这个邀请码已经被使用，请更换新的邀请码" };
+    }
+    return { source: "env", plan: envPlan };
+  }
+
+  return { error: "邀请码无效，请检查后再试" };
+}
+
+function markGeneratedInviteUsed(code, user) {
+  const normalized = normalizeInviteCode(code);
+  const invites = readInvites();
+  const invite = invites.find(item => normalizeInviteCode(item.code) === normalized);
+  if (!invite || invite.usedBy) return;
+  invite.usedBy = user.id;
+  invite.usedEmail = user.email;
+  invite.usedAt = new Date().toISOString();
+  writeInvites(invites);
+}
+
+function randomInviteCode(existingCodes) {
+  const alphabet = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    let raw = "";
+    for (let index = 0; index < 12; index += 1) {
+      raw += alphabet[crypto.randomInt(alphabet.length)];
+    }
+    const code = `${raw.slice(0, 4)}-${raw.slice(4, 8)}-${raw.slice(8, 12)}`;
+    if (!existingCodes.has(code)) return code;
+  }
+  throw new Error("邀请码生成失败，请稍后再试");
+}
+
+function inviteStats(invites = readInvites()) {
+  const unused = invites.filter(invite => !invite.usedBy);
+  return {
+    total: invites.length,
+    unused: unused.length,
+    oneDayUnused: unused.filter(invite => invite.type === "one_day").length,
+    oneMonthUnused: unused.filter(invite => invite.type === "one_month").length
+  };
+}
+
+function trialEndsAt(plan) {
+  const now = new Date();
+  if (plan.type === "one_month") {
+    now.setMonth(now.getMonth() + 1);
+    return now.toISOString();
+  }
+  return new Date(Date.now() + ONE_DAY_MS).toISOString();
+}
+
+function trialInfo(user) {
+  const endsAt = user.trialEndsAt || "";
+  const endMs = Date.parse(endsAt);
+  const active = Number.isFinite(endMs) && endMs > Date.now();
+  const remainingDays = active ? Math.max(1, Math.ceil((endMs - Date.now()) / ONE_DAY_MS)) : 0;
+  return {
+    type: user.trialType || "",
+    label: user.trialLabel || "未开通试用",
+    endsAt,
+    active,
+    remainingDays
+  };
+}
+
+function isTrialActive(user) {
+  return trialInfo(user).active;
+}
+
+function inviteCodeUsed(users, code) {
+  const normalized = normalizeInviteCode(code);
+  return users.some(user => normalizeInviteCode(user.inviteCode) === normalized);
 }
 
 function hashPassword(password, salt = crypto.randomBytes(16).toString("hex")) {
@@ -69,7 +212,8 @@ function publicUser(user) {
   return {
     id: user.id,
     name: user.name,
-    email: user.email
+    email: user.email,
+    trial: trialInfo(user)
   };
 }
 
@@ -353,15 +497,62 @@ async function handleQuota(req, res) {
   });
 }
 
+async function handleAdminInviteCodes(req, res) {
+  try {
+    const body = JSON.parse(await readBody(req) || "{}");
+    if (!ADMIN_SECRET) {
+      sendJson(res, 500, { error: "还没有配置 ADMIN_SECRET，暂时不能在网页里生成邀请码" });
+      return;
+    }
+    if (String(body.adminSecret || "") !== ADMIN_SECRET) {
+      sendJson(res, 401, { error: "管理员口令不正确" });
+      return;
+    }
+
+    const type = body.type === "one_month" ? "one_month" : "one_day";
+    const count = Math.max(1, Math.min(100, Number(body.count || 10)));
+    const label = type === "one_month" ? "1 个月试用" : "1 天试用";
+    const invites = readInvites();
+    const existing = new Set([
+      ...invites.map(invite => normalizeInviteCode(invite.code)),
+      ...ONE_DAY_INVITE_CODES,
+      ...ONE_MONTH_INVITE_CODES
+    ]);
+    const created = [];
+
+    for (let index = 0; index < count; index += 1) {
+      const code = randomInviteCode(existing);
+      existing.add(code);
+      const invite = {
+        code,
+        type,
+        label,
+        createdAt: new Date().toISOString(),
+        usedBy: null,
+        usedEmail: null,
+        usedAt: null
+      };
+      invites.push(invite);
+      created.push(code);
+    }
+
+    writeInvites(invites);
+    sendJson(res, 200, { codes: created, stats: inviteStats(invites) });
+  } catch (error) {
+    sendJson(res, 500, { error: error.message || "邀请码生成失败" });
+  }
+}
+
 async function handleRegister(req, res) {
   try {
     const body = JSON.parse(await readBody(req) || "{}");
     const name = String(body.name || "").trim();
     const email = normalizeEmail(body.email);
     const password = String(body.password || "");
+    const inviteCode = normalizeInviteCode(body.inviteCode);
 
-    if (!name || !email || !password) {
-      sendJson(res, 400, { error: "请填写昵称、邮箱和密码" });
+    if (!name || !email || !password || !inviteCode) {
+      sendJson(res, 400, { error: "请填写昵称、邮箱、密码和邀请码" });
       return;
     }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
@@ -378,6 +569,12 @@ async function handleRegister(req, res) {
       sendJson(res, 409, { error: "这个邮箱已经注册，请直接登录" });
       return;
     }
+    const inviteAccess = findInviteAccess(users, inviteCode);
+    if (inviteAccess.error) {
+      sendJson(res, inviteAccess.error.includes("已经被使用") ? 409 : 403, { error: inviteAccess.error });
+      return;
+    }
+    const invitePlan = inviteAccess.plan;
 
     const passwordData = hashPassword(password);
     const user = {
@@ -386,10 +583,18 @@ async function handleRegister(req, res) {
       email,
       salt: passwordData.salt,
       passwordHash: passwordData.hash,
+      inviteCode,
+      trialType: invitePlan.type,
+      trialLabel: invitePlan.label,
+      trialStartsAt: new Date().toISOString(),
+      trialEndsAt: trialEndsAt(invitePlan),
       createdAt: new Date().toISOString()
     };
     users.push(user);
     writeUsers(users);
+    if (inviteAccess.source === "generated") {
+      markGeneratedInviteUsed(inviteCode, user);
+    }
 
     const token = createSession(user);
     sendJson(res, 200, { token, user: publicUser(user), limit: DAILY_LIMIT, remaining: remainingFor(req, `user:${user.id}`) });
@@ -440,6 +645,15 @@ async function handleChat(req, res) {
       sendJson(res, 401, { error: "请先登录后再使用对话功能" });
       return;
     }
+    if (!isTrialActive(user)) {
+      sendJson(res, 403, {
+        error: "试用期已经结束。请联系老师或管理员获取新的试用资格。",
+        limit: DAILY_LIMIT,
+        remaining: 0,
+        user: publicUser(user)
+      });
+      return;
+    }
     const identity = `user:${user.id}`;
     const profile = body.profile || {};
     const messages = Array.isArray(body.messages) ? body.messages : [];
@@ -482,6 +696,10 @@ async function handleVision(req, res) {
       sendJson(res, 401, { error: "请先登录后再使用图片识别功能" });
       return;
     }
+    if (!isTrialActive(user)) {
+      sendJson(res, 403, { error: "试用期已经结束。请联系老师或管理员获取新的试用资格。" });
+      return;
+    }
     const body = JSON.parse(await readBody(req, 8 * 1024 * 1024) || "{}");
     const image = String(body.image || "");
     if (!image.startsWith("data:image/")) {
@@ -518,6 +736,10 @@ const server = http.createServer((req, res) => {
   }
   if (req.method === "GET" && req.url.startsWith("/api/quota")) {
     handleQuota(req, res);
+    return;
+  }
+  if (req.method === "POST" && req.url === "/api/admin/invite-codes") {
+    handleAdminInviteCodes(req, res);
     return;
   }
   if (req.method === "POST" && req.url === "/api/chat") {
