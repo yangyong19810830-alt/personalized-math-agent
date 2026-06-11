@@ -34,6 +34,7 @@ const sessions = new Map();
 const DATA_DIR = path.join(ROOT, "data");
 const USERS_FILE = path.join(DATA_DIR, "users.json");
 const INVITES_FILE = path.join(DATA_DIR, "invites.json");
+const CONVERSATIONS_FILE = path.join(DATA_DIR, "conversations.json");
 
 const mime = {
   ".html": "text/html; charset=utf-8",
@@ -53,6 +54,7 @@ function ensureDataStore() {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
   if (!fs.existsSync(USERS_FILE)) fs.writeFileSync(USERS_FILE, "[]", "utf8");
   if (!fs.existsSync(INVITES_FILE)) fs.writeFileSync(INVITES_FILE, "[]", "utf8");
+  if (!fs.existsSync(CONVERSATIONS_FILE)) fs.writeFileSync(CONVERSATIONS_FILE, "[]", "utf8");
 }
 
 function readUsers() {
@@ -81,6 +83,20 @@ function readInvites() {
 function writeInvites(invites) {
   ensureDataStore();
   fs.writeFileSync(INVITES_FILE, JSON.stringify(invites, null, 2), "utf8");
+}
+
+function readConversations() {
+  ensureDataStore();
+  try {
+    return JSON.parse(fs.readFileSync(CONVERSATIONS_FILE, "utf8"));
+  } catch {
+    return [];
+  }
+}
+
+function writeConversations(conversations) {
+  ensureDataStore();
+  fs.writeFileSync(CONVERSATIONS_FILE, JSON.stringify(conversations, null, 2), "utf8");
 }
 
 function normalizeEmail(email) {
@@ -291,6 +307,89 @@ function publicUser(user) {
     email: user.email,
     trial: trialInfo(user)
   };
+}
+
+function conversationTitleFrom(text) {
+  const clean = String(text || "新的对话")
+    .replace(/\s+/g, " ")
+    .replace(/[{}[\]<>$\\]/g, "")
+    .trim();
+  return (clean || "新的对话").slice(0, 28);
+}
+
+function publicConversation(conversation) {
+  return {
+    id: conversation.id,
+    title: conversation.title || "新的对话",
+    createdAt: conversation.createdAt,
+    updatedAt: conversation.updatedAt,
+    messageCount: Array.isArray(conversation.messages) ? conversation.messages.length : 0
+  };
+}
+
+function getUserConversations(userId) {
+  return readConversations()
+    .filter(conversation => conversation.userId === userId)
+    .sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")));
+}
+
+function createConversation(user, title = "新的对话") {
+  const now = new Date().toISOString();
+  const conversations = readConversations();
+  const conversation = {
+    id: crypto.randomUUID(),
+    userId: user.id,
+    title,
+    messages: [],
+    createdAt: now,
+    updatedAt: now
+  };
+  conversations.push(conversation);
+  writeConversations(conversations);
+  return conversation;
+}
+
+function getConversation(user, conversationId) {
+  return readConversations().find(conversation => conversation.userId === user.id && conversation.id === conversationId) || null;
+}
+
+function saveConversationMessages(user, conversationId, userMessage, assistantMessage) {
+  const now = new Date().toISOString();
+  const conversations = readConversations();
+  let conversation = conversations.find(item => item.userId === user.id && item.id === conversationId);
+  if (!conversation) {
+    conversation = {
+      id: crypto.randomUUID(),
+      userId: user.id,
+      title: conversationTitleFrom(userMessage.content),
+      messages: [],
+      createdAt: now,
+      updatedAt: now
+    };
+    conversations.push(conversation);
+  }
+  if (!conversation.title || conversation.title === "新的对话") {
+    conversation.title = conversationTitleFrom(userMessage.content);
+  }
+  conversation.messages = Array.isArray(conversation.messages) ? conversation.messages : [];
+  conversation.messages.push(
+    {
+      role: "user",
+      content: String(userMessage.content || ""),
+      displayContent: String(userMessage.displayContent || userMessage.content || ""),
+      createdAt: now
+    },
+    {
+      role: "assistant",
+      content: String(assistantMessage.content || ""),
+      diagramAction: assistantMessage.diagramAction || "hold",
+      diagram: assistantMessage.diagram || null,
+      createdAt: now
+    }
+  );
+  conversation.updatedAt = now;
+  writeConversations(conversations);
+  return conversation;
 }
 
 function createSession(user) {
@@ -832,6 +931,47 @@ async function handleLogout(req, res) {
   sendJson(res, 200, { ok: true });
 }
 
+async function handleListConversations(req, res) {
+  const user = getUserFromRequest(req);
+  if (!user) {
+    sendJson(res, 401, { error: "请先登录" });
+    return;
+  }
+  sendJson(res, 200, {
+    conversations: getUserConversations(user.id).map(publicConversation)
+  });
+}
+
+async function handleCreateConversation(req, res) {
+  const user = getUserFromRequest(req);
+  if (!user) {
+    sendJson(res, 401, { error: "请先登录" });
+    return;
+  }
+  const conversation = createConversation(user);
+  sendJson(res, 200, {
+    conversation: publicConversation(conversation),
+    messages: []
+  });
+}
+
+async function handleReadConversation(req, res, conversationId) {
+  const user = getUserFromRequest(req);
+  if (!user) {
+    sendJson(res, 401, { error: "请先登录" });
+    return;
+  }
+  const conversation = getConversation(user, conversationId);
+  if (!conversation) {
+    sendJson(res, 404, { error: "没有找到这段对话" });
+    return;
+  }
+  sendJson(res, 200, {
+    conversation: publicConversation(conversation),
+    messages: Array.isArray(conversation.messages) ? conversation.messages : []
+  });
+}
+
 async function handleChat(req, res) {
   try {
     const body = JSON.parse(await readBody(req) || "{}");
@@ -852,8 +992,9 @@ async function handleChat(req, res) {
     const identity = `user:${user.id}`;
     const profile = body.profile || {};
     const messages = Array.isArray(body.messages) ? body.messages : [];
+    const latestUserMessage = [...messages].reverse().find(message => message.role === "user");
 
-    if (!messages.length) {
+    if (!messages.length || !latestUserMessage) {
       sendJson(res, 400, { error: "缺少对话内容" });
       return;
     }
@@ -868,10 +1009,24 @@ async function handleChat(req, res) {
     }
 
     const result = await callDeepSeek(messages, profile);
+    const conversation = saveConversationMessages(
+      user,
+      String(body.conversationId || ""),
+      {
+        content: latestUserMessage.content,
+        displayContent: body.displayText || latestUserMessage.displayContent || latestUserMessage.content
+      },
+      {
+        content: result.answer,
+        diagramAction: result.diagramAction,
+        diagram: result.diagram
+      }
+    );
     sendJson(res, 200, {
       answer: result.answer,
       diagramAction: result.diagramAction,
       diagram: result.diagram,
+      conversation: publicConversation(conversation),
       modelTier: result.modelTier,
       model: result.model,
       limit: DAILY_LIMIT,
@@ -939,6 +1094,7 @@ async function handleTts(req, res) {
 }
 
 const server = http.createServer((req, res) => {
+  const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
   if (req.method === "POST" && req.url === "/api/register") {
     handleRegister(req, res);
     return;
@@ -957,6 +1113,18 @@ const server = http.createServer((req, res) => {
   }
   if (req.method === "GET" && req.url.startsWith("/api/quota")) {
     handleQuota(req, res);
+    return;
+  }
+  if (req.method === "GET" && url.pathname === "/api/conversations") {
+    handleListConversations(req, res);
+    return;
+  }
+  if (req.method === "POST" && url.pathname === "/api/conversations") {
+    handleCreateConversation(req, res);
+    return;
+  }
+  if (req.method === "GET" && url.pathname.startsWith("/api/conversations/")) {
+    handleReadConversation(req, res, decodeURIComponent(url.pathname.split("/").pop() || ""));
     return;
   }
   if (req.method === "POST" && req.url === "/api/admin/invite-codes") {

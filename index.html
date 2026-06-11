@@ -314,6 +314,38 @@
       grid-template-columns: 1fr 1fr;
       gap: 8px;
     }
+    .conversation-tools {
+      display: grid;
+      gap: 8px;
+      margin-top: 12px;
+    }
+    .conversation-list {
+      display: grid;
+      gap: 8px;
+      max-height: 220px;
+      overflow: auto;
+    }
+    .conversation-item {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 9px 10px;
+      background: #fff;
+      color: var(--ink);
+      text-align: left;
+      cursor: pointer;
+    }
+    .conversation-item.active {
+      border-color: var(--brand);
+      background: var(--soft);
+      color: var(--brand);
+      font-weight: 800;
+    }
+    .conversation-item small {
+      display: block;
+      margin-top: 3px;
+      color: var(--muted);
+      font-weight: 400;
+    }
     .userbar {
       display: flex;
       align-items: center;
@@ -408,6 +440,12 @@
 
           <button class="btn primary full" id="plan">安排今天的学习</button>
 
+          <div class="conversation-tools">
+            <button class="btn full" id="newConversation">新对话</button>
+            <div class="small">对话记录</div>
+            <div class="conversation-list" id="conversationList"></div>
+          </div>
+
           <div class="steps">
             <div class="step"><strong>1. 定位卡点</strong>先判断是概念、方法、条件关系还是表达卡住。</div>
             <div class="step"><strong>2. 给一层提示</strong>不直接替学生做完，先推动第一步。</div>
@@ -448,6 +486,8 @@
   <script>
     let stage = "小学";
     let history = [];
+    let currentConversationId = "";
+    let conversations = [];
     let authToken = localStorage.getItem("math_agent_token") || "";
     let currentUser = null;
     let selectedImageData = "";
@@ -458,6 +498,7 @@
     const visualBoard = document.querySelector("#visualBoard");
     const imagePreview = document.querySelector("#imagePreview");
     const previewImage = document.querySelector("#previewImage");
+    const conversationList = document.querySelector("#conversationList");
     const voiceButton = document.querySelector("#voiceInput");
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     let recognition = null;
@@ -749,6 +790,90 @@
       quota.textContent = `今日剩余：${data.remaining}/${data.limit} 次${trialText}`;
     }
 
+    function renderConversationList() {
+      if (!conversationList) return;
+      if (!conversations.length) {
+        conversationList.innerHTML = `<div class="small">还没有历史对话</div>`;
+        return;
+      }
+      conversationList.innerHTML = conversations.map(item => `
+        <button class="conversation-item ${item.id === currentConversationId ? "active" : ""}" data-id="${escapeHtml(item.id)}">
+          ${escapeHtml(item.title || "新的对话")}
+          <small>${item.messageCount || 0} 条消息</small>
+        </button>
+      `).join("");
+      conversationList.querySelectorAll("button").forEach(button => {
+        button.addEventListener("click", () => openConversation(button.dataset.id));
+      });
+    }
+
+    async function loadConversations() {
+      if (!authToken) return;
+      try {
+        const res = await fetch("/api/conversations", { headers: authHeaders() });
+        const data = await res.json();
+        if (!res.ok) return;
+        conversations = Array.isArray(data.conversations) ? data.conversations : [];
+        renderConversationList();
+        if (!currentConversationId && conversations.length && history.length === 0) {
+          openConversation(conversations[0].id);
+        }
+      } catch {}
+    }
+
+    function renderConversationMessages(items) {
+      messages.innerHTML = "";
+      history = [];
+      drawDefault();
+      items.forEach(item => {
+        const role = item.role === "user" ? "user" : "agent";
+        addMessage(item.displayContent || item.content || "", role);
+        history.push({
+          role: item.role === "assistant" ? "assistant" : "user",
+          content: item.content || item.displayContent || ""
+        });
+        if (item.role === "assistant" && (item.diagramAction === "show" || item.diagramAction === "update")) {
+          renderStructureDiagram(item.diagram);
+        }
+      });
+    }
+
+    async function openConversation(id) {
+      if (!id) return;
+      try {
+        const res = await fetch(`/api/conversations/${encodeURIComponent(id)}`, { headers: authHeaders() });
+        const data = await res.json();
+        if (!res.ok) {
+          addMessage(data.error || "打开对话失败。", "error");
+          return;
+        }
+        currentConversationId = data.conversation.id;
+        renderConversationMessages(Array.isArray(data.messages) ? data.messages : []);
+        renderConversationList();
+      } catch {
+        addMessage("打开对话失败，请稍后再试。", "error");
+      }
+    }
+
+    async function createNewConversation() {
+      try {
+        const res = await fetch("/api/conversations", { method: "POST", headers: authHeaders() });
+        const data = await res.json();
+        if (!res.ok) {
+          addMessage(data.error || "新建对话失败。", "error");
+          return;
+        }
+        currentConversationId = data.conversation.id;
+        history = [];
+        messages.innerHTML = "";
+        drawDefault();
+        addMessage("新的对话已开启。你可以发一道题，或让我安排今天的学习。");
+        await loadConversations();
+      } catch {
+        addMessage("新建对话失败，请稍后再试。", "error");
+      }
+    }
+
     function authHeaders() {
       return authToken ? { Authorization: `Bearer ${authToken}` } : {};
     }
@@ -767,6 +892,7 @@
           addMessage(`你好，${currentUser.name}。${trialDays}你可以发一道题，也可以让我安排今天的学习。我会先定位卡点，再给合适提示，帮助学生形成稳定方法。`);
         }
       }
+      if (currentUser) loadConversations();
     }
 
     async function loadQuota() {
@@ -896,7 +1022,9 @@
           headers: { "Content-Type": "application/json", ...authHeaders() },
           body: JSON.stringify({
             profile: profile(),
-            messages: history
+            messages: history,
+            conversationId: currentConversationId,
+            displayText: options.displayText || ""
           })
         });
         const data = await res.json();
@@ -913,6 +1041,10 @@
           renderStructureDiagram(data.diagram);
         } else {
           drawThinking();
+        }
+        if (data.conversation?.id) {
+          currentConversationId = data.conversation.id;
+          await loadConversations();
         }
         history.push({ role: "assistant", content: data.answer });
       } catch (error) {
@@ -936,6 +1068,8 @@
       box.value = "";
       send(text);
     });
+
+    document.querySelector("#newConversation").addEventListener("click", createNewConversation);
 
     document.querySelector("#question").addEventListener("keydown", event => {
       if (event.key !== "Enter" || event.shiftKey || event.isComposing) return;
@@ -985,8 +1119,12 @@
       await fetch("/api/logout", { method: "POST", headers: authHeaders() }).catch(() => {});
       authToken = "";
       currentUser = null;
+      currentConversationId = "";
+      conversations = [];
+      history = [];
       localStorage.removeItem("math_agent_token");
       messages.innerHTML = "";
+      renderConversationList();
       updateAuthView({ user: null, limit: 0, remaining: 0 });
       quota.textContent = "请先登录";
     });
