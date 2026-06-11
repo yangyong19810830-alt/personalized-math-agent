@@ -121,8 +121,54 @@ function generatedInvitePlan(invite) {
   return null;
 }
 
+function invitePlanFromType(type) {
+  if (type === "one_day") {
+    return { type: "one_day", label: "1 天试用", days: 1 };
+  }
+  if (type === "one_month") {
+    return { type: "one_month", label: "1 个月试用", days: 30 };
+  }
+  return null;
+}
+
+function inviteSignature(base) {
+  if (!ADMIN_SECRET) return "";
+  return crypto.createHmac("sha256", ADMIN_SECRET)
+    .update(String(base || "").toUpperCase())
+    .digest("hex")
+    .slice(0, 10)
+    .toUpperCase();
+}
+
+function safeEqualText(a, b) {
+  const left = Buffer.from(String(a || ""));
+  const right = Buffer.from(String(b || ""));
+  return left.length === right.length && crypto.timingSafeEqual(left, right);
+}
+
+function signedInvitePlanFor(code) {
+  const normalized = normalizeInviteCode(code);
+  const parts = normalized.split("-");
+  if (parts.length !== 5) return null;
+  const [prefix, a, b, c, signature] = parts;
+  if (!["D", "M"].includes(prefix)) return null;
+  if (!/^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{12}$/.test(a + b + c)) return null;
+  if (!/^[A-F0-9]{10}$/.test(signature)) return null;
+  const base = `${prefix}-${a}-${b}-${c}`;
+  if (!safeEqualText(inviteSignature(base), signature)) return null;
+  return invitePlanFromType(prefix === "M" ? "one_month" : "one_day");
+}
+
 function findInviteAccess(users, code) {
   const normalized = normalizeInviteCode(code);
+  const signedPlan = signedInvitePlanFor(normalized);
+  if (signedPlan) {
+    if (inviteCodeUsed(users, normalized)) {
+      return { error: "这个邀请码已经被使用，请更换新的邀请码" };
+    }
+    return { source: "signed", plan: signedPlan };
+  }
+
   const generated = readInvites().find(invite => normalizeInviteCode(invite.code) === normalized);
   if (generated) {
     if (generated.usedBy) {
@@ -163,6 +209,24 @@ function randomInviteCode(existingCodes) {
       raw += alphabet[crypto.randomInt(alphabet.length)];
     }
     const code = `${raw.slice(0, 4)}-${raw.slice(4, 8)}-${raw.slice(8, 12)}`;
+    if (!existingCodes.has(code)) return code;
+  }
+  throw new Error("邀请码生成失败，请稍后再试");
+}
+
+function randomSignedInviteCode(type, existingCodes) {
+  if (!ADMIN_SECRET) {
+    throw new Error("还没有配置 ADMIN_SECRET，暂时不能生成稳定邀请码");
+  }
+  const alphabet = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
+  const prefix = type === "one_month" ? "M" : "D";
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    let raw = "";
+    for (let index = 0; index < 12; index += 1) {
+      raw += alphabet[crypto.randomInt(alphabet.length)];
+    }
+    const base = `${prefix}-${raw.slice(0, 4)}-${raw.slice(4, 8)}-${raw.slice(8, 12)}`;
+    const code = `${base}-${inviteSignature(base)}`;
     if (!existingCodes.has(code)) return code;
   }
   throw new Error("邀请码生成失败，请稍后再试");
@@ -644,33 +708,31 @@ async function handleAdminInviteCodes(req, res) {
 
     const type = body.type === "one_month" ? "one_month" : "one_day";
     const count = Math.max(1, Math.min(100, Number(body.count || 10)));
-    const label = type === "one_month" ? "1 个月试用" : "1 天试用";
-    const invites = readInvites();
+    const users = readUsers();
+    const legacyInvites = readInvites();
     const existing = new Set([
-      ...invites.map(invite => normalizeInviteCode(invite.code)),
+      ...users.map(user => normalizeInviteCode(user.inviteCode)).filter(Boolean),
+      ...legacyInvites.map(invite => normalizeInviteCode(invite.code)),
       ...ONE_DAY_INVITE_CODES,
       ...ONE_MONTH_INVITE_CODES
     ]);
     const created = [];
 
     for (let index = 0; index < count; index += 1) {
-      const code = randomInviteCode(existing);
+      const code = randomSignedInviteCode(type, existing);
       existing.add(code);
-      const invite = {
-        code,
-        type,
-        label,
-        createdAt: new Date().toISOString(),
-        usedBy: null,
-        usedEmail: null,
-        usedAt: null
-      };
-      invites.push(invite);
       created.push(code);
     }
 
-    writeInvites(invites);
-    sendJson(res, 200, { codes: created, stats: inviteStats(invites) });
+    sendJson(res, 200, {
+      codes: created,
+      stats: {
+        total: created.length,
+        unused: created.length,
+        oneDayUnused: type === "one_day" ? created.length : 0,
+        oneMonthUnused: type === "one_month" ? created.length : 0
+      }
+    });
   } catch (error) {
     sendJson(res, 500, { error: error.message || "邀请码生成失败" });
   }
