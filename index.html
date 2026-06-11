@@ -488,6 +488,8 @@
     let history = [];
     let currentConversationId = "";
     let conversations = [];
+    let currentAudio = null;
+    const ttsAudioCache = new Map();
     let authToken = localStorage.getItem("math_agent_token") || "";
     let currentUser = null;
     let selectedImageData = "";
@@ -522,7 +524,7 @@
         speakButton.className = "msg-speak";
         speakButton.type = "button";
         speakButton.textContent = "AI朗读";
-        speakButton.addEventListener("click", () => speakText(normalized));
+        speakButton.addEventListener("click", () => speakText(normalized, speakButton));
         div.appendChild(speakButton);
       }
       messages.appendChild(div);
@@ -563,13 +565,29 @@
       window.speechSynthesis.speak(utterance);
     }
 
-    async function speakText(text) {
+    async function speakText(text, button) {
       const cleanText = normalizeMathText(text);
+      const previousLabel = button?.textContent || "AI朗读";
+      const cacheKey = cleanText.slice(0, 700);
       try {
+        if (currentAudio) {
+          currentAudio.pause();
+          currentAudio.currentTime = 0;
+        }
+        if (ttsAudioCache.has(cacheKey)) {
+          const cached = ttsAudioCache.get(cacheKey);
+          currentAudio = new Audio(cached);
+          await currentAudio.play();
+          return;
+        }
+        if (button) {
+          button.disabled = true;
+          button.textContent = "生成中...";
+        }
         const res = await fetch("/api/tts", {
           method: "POST",
           headers: { "Content-Type": "application/json", ...authHeaders() },
-          body: JSON.stringify({ text: cleanText })
+          body: JSON.stringify({ text: cacheKey })
         });
         if (!res.ok) {
           browserSpeakText(cleanText);
@@ -577,15 +595,19 @@
         }
         const audioBlob = await res.blob();
         const audioUrl = URL.createObjectURL(audioBlob);
-        const audio = new Audio(audioUrl);
-        audio.onended = () => URL.revokeObjectURL(audioUrl);
-        audio.onerror = () => {
-          URL.revokeObjectURL(audioUrl);
+        ttsAudioCache.set(cacheKey, audioUrl);
+        currentAudio = new Audio(audioUrl);
+        currentAudio.onerror = () => {
           browserSpeakText(cleanText);
         };
-        await audio.play();
+        await currentAudio.play();
       } catch {
         browserSpeakText(cleanText);
+      } finally {
+        if (button) {
+          button.disabled = false;
+          button.textContent = previousLabel;
+        }
       }
     }
 

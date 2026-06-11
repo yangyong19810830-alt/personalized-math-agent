@@ -23,6 +23,8 @@ const TTS_MODEL = process.env.TTS_MODEL || "glm-tts";
 const TTS_VOICE = process.env.TTS_VOICE || "xiaochen";
 const TTS_SPEED = Number(process.env.TTS_SPEED || 0.92);
 const TTS_VOLUME = Number(process.env.TTS_VOLUME || 1.0);
+const TTS_RESPONSE_FORMAT = (process.env.TTS_RESPONSE_FORMAT || "mp3").toLowerCase();
+const TTS_MAX_CHARS = Number(process.env.TTS_MAX_CHARS || 700);
 const TTS_INSTRUCTIONS = process.env.TTS_INSTRUCTIONS || "用自然、温和、清晰的中文老师语气朗读。语速稍慢，数学符号读得清楚，给学生稳定感。";
 const DAILY_LIMIT = Number(process.env.CHAT_LIMIT_PER_DAY || 100);
 const ADMIN_SECRET = process.env.ADMIN_SECRET || "";
@@ -35,6 +37,8 @@ const DATA_DIR = path.join(ROOT, "data");
 const USERS_FILE = path.join(DATA_DIR, "users.json");
 const INVITES_FILE = path.join(DATA_DIR, "invites.json");
 const CONVERSATIONS_FILE = path.join(DATA_DIR, "conversations.json");
+const TTS_CACHE_DIR = path.join(DATA_DIR, "tts-cache");
+const pendingTts = new Map();
 
 const mime = {
   ".html": "text/html; charset=utf-8",
@@ -52,6 +56,7 @@ function today() {
 
 function ensureDataStore() {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+  if (!fs.existsSync(TTS_CACHE_DIR)) fs.mkdirSync(TTS_CACHE_DIR, { recursive: true });
   if (!fs.existsSync(USERS_FILE)) fs.writeFileSync(USERS_FILE, "[]", "utf8");
   if (!fs.existsSync(INVITES_FILE)) fs.writeFileSync(INVITES_FILE, "[]", "utf8");
   if (!fs.existsSync(CONVERSATIONS_FILE)) fs.writeFileSync(CONVERSATIONS_FILE, "[]", "utf8");
@@ -744,10 +749,48 @@ async function callTts(text) {
   if (!TTS_API_KEY) {
     throw new Error("还没有配置自然人声朗读模型");
   }
-  const input = String(text || "").replace(/\s+/g, " ").trim().slice(0, 1200);
+  const input = String(text || "").replace(/\s+/g, " ").trim().slice(0, TTS_MAX_CHARS);
   if (!input) throw new Error("缺少朗读内容");
 
-  const payload = TTS_PROVIDER === "openai"
+  const primaryFormat = TTS_PROVIDER === "openai" ? "mp3" : TTS_RESPONSE_FORMAT;
+  const formats = TTS_PROVIDER === "openai" || primaryFormat === "wav" ? [primaryFormat] : [primaryFormat, "wav"];
+  const cacheBase = JSON.stringify({
+    provider: TTS_PROVIDER,
+    baseUrl: TTS_BASE_URL,
+    model: TTS_MODEL,
+    voice: TTS_VOICE,
+    speed: TTS_SPEED,
+    volume: TTS_VOLUME,
+    input
+  });
+  const cacheKey = crypto.createHash("sha256").update(cacheBase).digest("hex");
+
+  for (const format of formats) {
+    const ext = format === "wav" ? "wav" : "mp3";
+    const cachePath = path.join(TTS_CACHE_DIR, `${cacheKey}.${ext}`);
+    if (fs.existsSync(cachePath)) {
+      return {
+        audio: fs.readFileSync(cachePath),
+        contentType: ext === "wav" ? "audio/wav" : "audio/mpeg"
+      };
+    }
+  }
+
+  if (pendingTts.has(cacheKey)) return pendingTts.get(cacheKey);
+
+  const task = generateTtsAudio(input, formats, cacheKey);
+  pendingTts.set(cacheKey, task);
+  try {
+    return await task;
+  } finally {
+    pendingTts.delete(cacheKey);
+  }
+}
+
+async function generateTtsAudio(input, formats, cacheKey) {
+  let lastError = null;
+  for (const format of formats) {
+    const payload = TTS_PROVIDER === "openai"
     ? {
         model: TTS_MODEL,
         voice: TTS_VOICE,
@@ -759,28 +802,35 @@ async function callTts(text) {
         model: TTS_MODEL,
         voice: TTS_VOICE,
         input,
-        response_format: "wav",
+        response_format: format,
         speed: TTS_SPEED,
         volume: TTS_VOLUME
       };
 
-  const response = await fetch(`${TTS_BASE_URL}/audio/speech`, {
-    method: "POST",
-    headers: {
-      "Authorization": `Bearer ${TTS_API_KEY}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify(payload)
-  });
+    const response = await fetch(`${TTS_BASE_URL}/audio/speech`, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${TTS_API_KEY}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(payload)
+    });
 
-  if (!response.ok) {
-    const errorText = await response.text().catch(() => "");
-    throw new Error(errorText || `语音生成 API 错误：${response.status}`);
+    if (!response.ok) {
+      lastError = await response.text().catch(() => "");
+      continue;
+    }
+
+    const ext = format === "wav" ? "wav" : "mp3";
+    const audio = Buffer.from(await response.arrayBuffer());
+    const cachePath = path.join(TTS_CACHE_DIR, `${cacheKey}.${ext}`);
+    fs.writeFile(cachePath, audio, () => {});
+    return {
+      audio,
+      contentType: ext === "wav" ? "audio/wav" : "audio/mpeg"
+    };
   }
-  return {
-    audio: Buffer.from(await response.arrayBuffer()),
-    contentType: TTS_PROVIDER === "openai" ? "audio/mpeg" : "audio/wav"
-  };
+  throw new Error(lastError || "语音生成失败");
 }
 
 async function handleQuota(req, res) {
