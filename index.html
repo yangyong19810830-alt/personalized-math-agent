@@ -226,9 +226,9 @@
       background: #fff7ed;
     }
     .msg-speak {
-      display: block;
+      display: inline-block;
       width: max-content;
-      margin-top: 8px;
+      margin: 8px 8px 0 0;
       border: 1px solid var(--line);
       border-radius: 999px;
       padding: 4px 10px;
@@ -237,6 +237,10 @@
       font-size: 12px;
       line-height: 1.4;
       cursor: pointer;
+    }
+    .msg-speak.fast {
+      color: var(--teal);
+      border-color: #b9e3dc;
     }
     .file-btn {
       position: relative;
@@ -505,6 +509,8 @@
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     let recognition = null;
     let listening = false;
+    let cloudSttEnabled = null;
+    let voiceRecording = null;
 
     function profile() {
       return {
@@ -520,10 +526,16 @@
       const normalized = normalizeMathText(text);
       div.textContent = normalized;
       if (role === "agent" && normalized && !normalized.startsWith("正在")) {
+        const fastSpeakButton = document.createElement("button");
+        fastSpeakButton.className = "msg-speak fast";
+        fastSpeakButton.type = "button";
+        fastSpeakButton.textContent = "快速朗读";
+        fastSpeakButton.addEventListener("click", () => browserSpeakText(normalized));
+        div.appendChild(fastSpeakButton);
         const speakButton = document.createElement("button");
         speakButton.className = "msg-speak";
         speakButton.type = "button";
-        speakButton.textContent = "AI朗读";
+        speakButton.textContent = "AI人声";
         speakButton.addEventListener("click", () => speakText(normalized, speakButton));
         div.appendChild(speakButton);
       }
@@ -614,7 +626,7 @@
     function setListening(active) {
       listening = active;
       voiceButton.classList.toggle("listening", active);
-      voiceButton.textContent = active ? "停止语音" : "语音输入";
+      voiceButton.textContent = active ? "停止录音" : "语音输入";
     }
 
     function appendQuestionText(text) {
@@ -624,9 +636,185 @@
       box.focus();
     }
 
-    function startVoiceInput() {
+    function mergeFloat32Chunks(chunks) {
+      const totalLength = chunks.reduce((sum, item) => sum + item.length, 0);
+      const result = new Float32Array(totalLength);
+      let offset = 0;
+      chunks.forEach(item => {
+        result.set(item, offset);
+        offset += item.length;
+      });
+      return result;
+    }
+
+    function downsampleBuffer(buffer, inputSampleRate, outputSampleRate) {
+      if (outputSampleRate === inputSampleRate) return buffer;
+      const ratio = inputSampleRate / outputSampleRate;
+      const newLength = Math.round(buffer.length / ratio);
+      const result = new Float32Array(newLength);
+      let offsetResult = 0;
+      let offsetBuffer = 0;
+      while (offsetResult < result.length) {
+        const nextOffsetBuffer = Math.round((offsetResult + 1) * ratio);
+        let sum = 0;
+        let count = 0;
+        for (let index = offsetBuffer; index < nextOffsetBuffer && index < buffer.length; index += 1) {
+          sum += buffer[index];
+          count += 1;
+        }
+        result[offsetResult] = count ? sum / count : 0;
+        offsetResult += 1;
+        offsetBuffer = nextOffsetBuffer;
+      }
+      return result;
+    }
+
+    function encodeWavDataUrl(chunks, inputSampleRate) {
+      const sampleRate = 16000;
+      const samples = downsampleBuffer(mergeFloat32Chunks(chunks), inputSampleRate, sampleRate);
+      const buffer = new ArrayBuffer(44 + samples.length * 2);
+      const view = new DataView(buffer);
+      const writeString = (offset, value) => {
+        for (let index = 0; index < value.length; index += 1) {
+          view.setUint8(offset + index, value.charCodeAt(index));
+        }
+      };
+      writeString(0, "RIFF");
+      view.setUint32(4, 36 + samples.length * 2, true);
+      writeString(8, "WAVE");
+      writeString(12, "fmt ");
+      view.setUint32(16, 16, true);
+      view.setUint16(20, 1, true);
+      view.setUint16(22, 1, true);
+      view.setUint32(24, sampleRate, true);
+      view.setUint32(28, sampleRate * 2, true);
+      view.setUint16(32, 2, true);
+      view.setUint16(34, 16, true);
+      writeString(36, "data");
+      view.setUint32(40, samples.length * 2, true);
+      let offset = 44;
+      for (let index = 0; index < samples.length; index += 1, offset += 2) {
+        const sample = Math.max(-1, Math.min(1, samples[index]));
+        view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
+      }
+      const bytes = new Uint8Array(buffer);
+      let binary = "";
+      for (let index = 0; index < bytes.byteLength; index += 1) {
+        binary += String.fromCharCode(bytes[index]);
+      }
+      return `data:audio/wav;base64,${btoa(binary)}`;
+    }
+
+    function explainBrowserSpeechError(error) {
+      const reasons = {
+        "not-allowed": "麦克风权限被浏览器拦住了。请点地址栏左侧的小锁/设置，把麦克风改为允许。",
+        "audio-capture": "没有检测到可用麦克风。请检查耳机或系统麦克风权限。",
+        "network": "Chrome 的浏览器语音服务连接失败。这通常是网络访问不到 Google 语音服务，不是你操作错了。",
+        "no-speech": "没有听到清楚的声音。可以靠近麦克风再试一次。",
+        "aborted": "这次语音输入被中断了，可以重新点一次。",
+        "service-not-allowed": "浏览器语音服务不可用。建议改用云端语音识别。"
+      };
+      return reasons[error] || `语音输入失败：${error || "未知原因"}。`;
+    }
+
+    async function hasCloudStt() {
+      if (cloudSttEnabled !== null) return cloudSttEnabled;
+      try {
+        const res = await fetch("/api/stt/status", { headers: authHeaders() });
+        const data = await res.json();
+        cloudSttEnabled = Boolean(data.enabled);
+      } catch {
+        cloudSttEnabled = false;
+      }
+      return cloudSttEnabled;
+    }
+
+    async function startVoiceInput() {
+      if (voiceRecording) {
+        await stopCloudVoiceInput();
+        return;
+      }
+      if (listening && recognition) {
+        recognition.stop();
+        return;
+      }
+      if (await hasCloudStt()) {
+        await startCloudVoiceInput();
+        return;
+      }
+      addMessage("云端语音识别还没配置，先尝试 Chrome 自带语音。如果这里也失败，就需要管理员在 Render 里配置腾讯云语音识别密钥。", "error");
+      startBrowserSpeechInput();
+    }
+
+    async function startCloudVoiceInput() {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        addMessage("当前浏览器不能直接录音，请换 Chrome/Edge，或使用手机系统键盘自带的麦克风输入。", "error");
+        return;
+      }
+      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContextClass) {
+        addMessage("当前浏览器不支持网页录音，请换 Chrome/Edge 再试。", "error");
+        return;
+      }
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+        });
+        const audioContext = new AudioContextClass();
+        const source = audioContext.createMediaStreamSource(stream);
+        const processor = audioContext.createScriptProcessor(4096, 1, 1);
+        const chunks = [];
+        processor.onaudioprocess = event => {
+          chunks.push(new Float32Array(event.inputBuffer.getChannelData(0)));
+        };
+        source.connect(processor);
+        processor.connect(audioContext.destination);
+        voiceRecording = { stream, audioContext, source, processor, chunks, sampleRate: audioContext.sampleRate };
+        voiceRecording.timer = window.setTimeout(() => stopCloudVoiceInput(), 15000);
+        setListening(true);
+        document.querySelector("#question").placeholder = "正在录音，讲完后再点一次“停止录音”。";
+      } catch (error) {
+        setListening(false);
+        addMessage(error?.name === "NotAllowedError"
+          ? "麦克风权限被拦住了。请点地址栏左侧的小锁/设置，把麦克风改为允许。"
+          : "没有打开麦克风，建议检查系统麦克风权限后再试。", "error");
+      }
+    }
+
+    async function stopCloudVoiceInput() {
+      const recording = voiceRecording;
+      if (!recording) return;
+      voiceRecording = null;
+      window.clearTimeout(recording.timer);
+      try { recording.processor.disconnect(); } catch {}
+      try { recording.source.disconnect(); } catch {}
+      try { recording.stream.getTracks().forEach(track => track.stop()); } catch {}
+      try { await recording.audioContext.close(); } catch {}
+      setListening(false);
+      document.querySelector("#question").placeholder = "正在识别语音...";
+      try {
+        if (recording.chunks.length < 2) throw new Error("录音太短了，请说完整一点再试");
+        const audio = encodeWavDataUrl(recording.chunks, recording.sampleRate);
+        const res = await fetch("/api/stt", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...authHeaders() },
+          body: JSON.stringify({ audio })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || "语音识别失败");
+        const text = String(data.text || "").trim();
+        if (!text) throw new Error("没有识别到清楚的语音");
+        appendQuestionText(text);
+      } catch (error) {
+        addMessage(error.message || "语音识别失败，请再试一次。", "error");
+      } finally {
+        document.querySelector("#question").placeholder = "输入题目，或直接 Ctrl+V 粘贴题目截图。";
+      }
+    }
+
+    function startBrowserSpeechInput() {
       if (!SpeechRecognition) {
-        addMessage("当前浏览器不支持语音输入。建议用 Chrome 或 Edge 打开网站再试。", "error");
+        addMessage("当前浏览器没有可用的自带语音输入。建议先用手机/电脑输入法自带的麦克风，或让管理员配置云端语音识别。", "error");
         return;
       }
       if (listening && recognition) {
@@ -656,10 +844,10 @@
           document.querySelector("#question").placeholder = `正在听：${preview}`;
         }
       };
-      recognition.onerror = () => {
+      recognition.onerror = event => {
         setListening(false);
         document.querySelector("#question").placeholder = "输入题目，或直接 Ctrl+V 粘贴题目截图。";
-        addMessage("这次没有听清楚，可以靠近一点再试。", "error");
+        addMessage(explainBrowserSpeechError(event.error), "error");
       };
       recognition.onend = () => {
         setListening(false);
@@ -667,7 +855,12 @@
         const text = finalText.trim();
         if (text) appendQuestionText(text);
       };
-      recognition.start();
+      try {
+        recognition.start();
+      } catch (error) {
+        setListening(false);
+        addMessage(error.message || "语音输入启动失败，请刷新页面后再试。", "error");
+      }
     }
 
     function visualCard(title, svg, legend) {

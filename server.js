@@ -26,6 +26,12 @@ const TTS_VOLUME = Number(process.env.TTS_VOLUME || 1.0);
 const TTS_RESPONSE_FORMAT = (process.env.TTS_RESPONSE_FORMAT || "mp3").toLowerCase();
 const TTS_MAX_CHARS = Number(process.env.TTS_MAX_CHARS || 700);
 const TTS_INSTRUCTIONS = process.env.TTS_INSTRUCTIONS || "用自然、温和、清晰的中文老师语气朗读。语速稍慢，数学符号读得清楚，给学生稳定感。";
+const STT_PROVIDER = (process.env.STT_PROVIDER || "tencent").toLowerCase();
+const TENCENT_SECRET_ID = process.env.TENCENT_SECRET_ID || "";
+const TENCENT_SECRET_KEY = process.env.TENCENT_SECRET_KEY || "";
+const TENCENT_REGION = process.env.TENCENT_REGION || "ap-shanghai";
+const TENCENT_ASR_ENDPOINT = process.env.TENCENT_ASR_ENDPOINT || "asr.tencentcloudapi.com";
+const TENCENT_ASR_ENGINE = process.env.TENCENT_ASR_ENGINE || "16k_zh";
 const DAILY_LIMIT = Number(process.env.CHAT_LIMIT_PER_DAY || 100);
 const ADMIN_SECRET = process.env.ADMIN_SECRET || "";
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
@@ -833,6 +839,83 @@ async function generateTtsAudio(input, formats, cacheKey) {
   throw new Error(lastError || "语音生成失败");
 }
 
+function sttConfigured() {
+  return STT_PROVIDER === "tencent" && Boolean(TENCENT_SECRET_ID && TENCENT_SECRET_KEY);
+}
+
+function hmacSha256(key, value, encoding) {
+  return crypto.createHmac("sha256", key).update(value).digest(encoding);
+}
+
+function sha256Hex(value) {
+  return crypto.createHash("sha256").update(value).digest("hex");
+}
+
+function tencentAuthorization({ action, payload, timestamp }) {
+  const service = "asr";
+  const date = new Date(timestamp * 1000).toISOString().slice(0, 10);
+  const signedHeaders = "content-type;host";
+  const hashedPayload = sha256Hex(payload);
+  const canonicalHeaders = `content-type:application/json; charset=utf-8\nhost:${TENCENT_ASR_ENDPOINT}\n`;
+  const canonicalRequest = [
+    "POST",
+    "/",
+    "",
+    canonicalHeaders,
+    signedHeaders,
+    hashedPayload
+  ].join("\n");
+  const credentialScope = `${date}/${service}/tc3_request`;
+  const stringToSign = [
+    "TC3-HMAC-SHA256",
+    timestamp,
+    credentialScope,
+    sha256Hex(canonicalRequest)
+  ].join("\n");
+  const secretDate = hmacSha256(`TC3${TENCENT_SECRET_KEY}`, date);
+  const secretService = hmacSha256(secretDate, service);
+  const secretSigning = hmacSha256(secretService, "tc3_request");
+  const signature = hmacSha256(secretSigning, stringToSign, "hex");
+  return `TC3-HMAC-SHA256 Credential=${TENCENT_SECRET_ID}/${credentialScope}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
+}
+
+async function callTencentStt(audioBase64) {
+  if (!sttConfigured()) {
+    throw new Error("还没有配置云端语音识别服务");
+  }
+  const payload = JSON.stringify({
+    ProjectId: 0,
+    SubServiceType: 2,
+    EngSerViceType: TENCENT_ASR_ENGINE,
+    SourceType: 1,
+    VoiceFormat: "wav",
+    UsrAudioKey: `math-agent-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`,
+    Data: audioBase64
+  });
+  const timestamp = Math.floor(Date.now() / 1000);
+  const action = "SentenceRecognition";
+  const response = await fetch(`https://${TENCENT_ASR_ENDPOINT}`, {
+    method: "POST",
+    headers: {
+      "Authorization": tencentAuthorization({ action, payload, timestamp }),
+      "Content-Type": "application/json; charset=utf-8",
+      "Host": TENCENT_ASR_ENDPOINT,
+      "X-TC-Action": action,
+      "X-TC-Timestamp": String(timestamp),
+      "X-TC-Version": "2019-06-14",
+      "X-TC-Region": TENCENT_REGION
+    },
+    body: payload
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || data.Response?.Error) {
+    throw new Error(data.Response?.Error?.Message || `语音识别 API 错误：${response.status}`);
+  }
+  const text = String(data.Response?.Result || "").trim();
+  if (!text) throw new Error("没有识别到清楚的语音，请靠近一点再试");
+  return text;
+}
+
 async function handleQuota(req, res) {
   const user = getUserFromRequest(req);
   const identity = user ? `user:${user.id}` : `ip:${clientIp(req)}`;
@@ -1143,6 +1226,37 @@ async function handleTts(req, res) {
   }
 }
 
+async function handleStt(req, res) {
+  try {
+    const user = getUserFromRequest(req);
+    if (!user) {
+      sendJson(res, 401, { error: "请先登录后再使用语音输入功能" });
+      return;
+    }
+    if (!isTrialActive(user)) {
+      sendJson(res, 403, { error: "试用期已经结束。请联系老师或管理员获取新的试用资格。" });
+      return;
+    }
+    if (!sttConfigured()) {
+      sendJson(res, 501, {
+        error: "云端语音识别还没有配置。请在 Render 环境变量里添加腾讯云语音识别密钥。"
+      });
+      return;
+    }
+    const body = JSON.parse(await readBody(req, 6 * 1024 * 1024) || "{}");
+    const audio = String(body.audio || "");
+    const audioBase64 = audio.includes(",") ? audio.split(",").pop() : audio;
+    if (!audioBase64) {
+      sendJson(res, 400, { error: "缺少录音内容" });
+      return;
+    }
+    const text = await callTencentStt(audioBase64);
+    sendJson(res, 200, { text });
+  } catch (error) {
+    sendJson(res, 500, { error: error.message || "语音识别失败" });
+  }
+}
+
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
   if (req.method === "POST" && req.url === "/api/register") {
@@ -1191,6 +1305,14 @@ const server = http.createServer((req, res) => {
   }
   if (req.method === "POST" && req.url === "/api/tts") {
     handleTts(req, res);
+    return;
+  }
+  if (req.method === "GET" && req.url === "/api/stt/status") {
+    sendJson(res, 200, { enabled: sttConfigured(), provider: STT_PROVIDER });
+    return;
+  }
+  if (req.method === "POST" && req.url === "/api/stt") {
+    handleStt(req, res);
     return;
   }
   if (req.method === "GET") {
