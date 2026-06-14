@@ -13,6 +13,7 @@
 - 管理员网页自动生成随机邀请码
 - 每个账号每日对话次数限制
 - 每个账号的对话记录保存和新对话
+- PWA 可安装到手机/电脑桌面
 - 自动判断是否需要展示解题结构图
 - 题目图片上传和对话框 Ctrl+V 粘贴识别
 - 浏览器语音输入和智能体回复朗读
@@ -100,6 +101,28 @@ http://localhost:8787
 Start Command: npm start
 Node Version: 18 或更高
 ```
+
+## PWA 安装到桌面
+
+当前版本已经支持 PWA。部署后，家长和学生可以把网站安装成桌面应用：
+
+- 安卓 Chrome：打开网站，点浏览器右上角菜单，选择“安装应用”或“添加到主屏幕”
+- 电脑 Chrome/Edge：打开网站，地址栏右侧可能出现安装图标，也可以点页面右上角“安装到桌面”
+- iPhone Safari：打开网站，点分享按钮，选择“添加到主屏幕”
+
+PWA 需要通过 HTTPS 访问才会正常安装。Render 的 `https://personalized-math-agent.onrender.com/` 满足这个条件。
+
+本项目新增了这些 PWA 文件：
+
+```txt
+manifest.webmanifest
+sw.js
+icons/app-icon.svg
+icons/app-icon-192.png
+icons/app-icon-512.png
+```
+
+上传到 GitHub 时，请一起上传这些文件和 `icons` 文件夹。
 
 ## 邀请码、账号与次数限制
 

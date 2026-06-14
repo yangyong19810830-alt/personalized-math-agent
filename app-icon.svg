@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="数学智能体">
+  <rect width="512" height="512" rx="96" fill="#0f766e"/>
+  <path d="M96 366V146h61l52 118 52-118h61v220h-52V236l-43 97h-36l-43-97v130H96Z" fill="#ffffff"/>
+  <path d="M342 168h74v38h-74v-38Zm18 69h38v103h-38V237Z" fill="#d9fbf4"/>
+  <circle cx="379" cy="132" r="22" fill="#d9fbf4"/>
+  <path d="M88 414h336" stroke="#d9fbf4" stroke-width="24" stroke-linecap="round"/>
+</svg>

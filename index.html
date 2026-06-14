@@ -3,7 +3,16 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#0f766e" />
+  <meta name="application-name" content="数学智能体" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="数学智能体" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="mobile-web-app-capable" content="yes" />
   <title>个性化数学学习智能体</title>
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="icon" href="/icons/app-icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="/icons/app-icon-192.png" />
   <script>
     window.MathJax = {
       tex: {
@@ -376,6 +385,7 @@
         </div>
       </div>
       <div class="userbar">
+        <button class="btn hidden" id="installApp">安装到桌面</button>
         <div class="quota" id="quota">剩余次数：读取中</div>
         <button class="btn hidden" id="logout">退出</button>
       </div>
@@ -497,6 +507,7 @@
     let authToken = localStorage.getItem("math_agent_token") || "";
     let currentUser = null;
     let selectedImageData = "";
+    let deferredInstallPrompt = null;
     const messages = document.querySelector("#messages");
     const quota = document.querySelector("#quota");
     const authPanel = document.querySelector("#authPanel");
@@ -506,6 +517,7 @@
     const previewImage = document.querySelector("#previewImage");
     const conversationList = document.querySelector("#conversationList");
     const voiceButton = document.querySelector("#voiceInput");
+    const installAppButton = document.querySelector("#installApp");
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     let recognition = null;
     let listening = false;
@@ -518,6 +530,34 @@
         goal: document.querySelector("#goal").value,
         state: document.querySelector("#state").value
       };
+    }
+
+    function setupPwaInstall() {
+      if ("serviceWorker" in navigator) {
+        window.addEventListener("load", () => {
+          navigator.serviceWorker.register("/sw.js").catch(() => {});
+        });
+      }
+      window.addEventListener("beforeinstallprompt", event => {
+        event.preventDefault();
+        deferredInstallPrompt = event;
+        installAppButton.classList.remove("hidden");
+      });
+      window.addEventListener("appinstalled", () => {
+        deferredInstallPrompt = null;
+        installAppButton.classList.add("hidden");
+      });
+    }
+
+    async function installApp() {
+      if (!deferredInstallPrompt) {
+        addMessage("如果没有弹出安装按钮，可以点浏览器右上角菜单，选择“添加到主屏幕”或“安装应用”。", "error");
+        return;
+      }
+      deferredInstallPrompt.prompt();
+      await deferredInstallPrompt.userChoice.catch(() => {});
+      deferredInstallPrompt = null;
+      installAppButton.classList.add("hidden");
     }
 
     function addMessage(text, role = "agent") {
@@ -1297,6 +1337,7 @@
     });
 
     voiceButton.addEventListener("click", startVoiceInput);
+    installAppButton.addEventListener("click", installApp);
 
     document.querySelector("#plan").addEventListener("click", () => {
       send("请根据我的阶段、目标和当前状态，安排今天的数学学习。");
@@ -1344,6 +1385,7 @@
       quota.textContent = "请先登录";
     });
 
+    setupPwaInstall();
     loadQuota();
     drawDefault();
   </script>
