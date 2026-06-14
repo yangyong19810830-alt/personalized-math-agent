@@ -538,12 +538,9 @@ function systemPrompt(profile) {
     `学生阶段：${profile.stage || "小学"}。`,
     `学习目标：${profile.goal || "补齐薄弱知识"}。`,
     `当前状态：${profile.state || "局部会做但不稳定"}。`,
-    "输出要求：必须只输出 JSON，不要 Markdown，不要代码块，不要额外解释。",
-    "JSON 格式：{\"answer\":\"给学生看的简短讲解或启发问题\",\"diagramAction\":\"hold|show|update\",\"diagram\":{\"title\":\"结构图标题\",\"nodes\":[{\"id\":\"n1\",\"label\":\"短标签\",\"type\":\"given|goal|relation|step|result|check\"}],\"edges\":[{\"from\":\"n1\",\"to\":\"n2\",\"label\":\"箭头短说明\"}]}}",
-    "diagramAction=hold 时，diagram 可以为 null，表示先不画图，让学生回答。",
-    "diagramAction=show 或 update 时，diagram 必须提供结构图数据。",
-    "nodes 最多 9 个，edges 最多 10 条。label 尽量 4-12 个汉字，避免长句。",
-    "answer 中可以提示学生先看右侧结构图，但不要说 JSON、节点、模型等技术词。"
+    "输出要求：直接给学生看的自然语言，不要输出 JSON，不要 Markdown，不要代码块。",
+    "回复要短，通常 80-180 个汉字。先问关键启发问题，不要一上来完整解题。",
+    "如果学生主动要求画图，可以在文字中说“我先把关系画出来”，但不要输出图形数据。"
   ].join("\n");
 }
 
@@ -554,12 +551,12 @@ function deepSeekConfig(messages, profile = {}, forcePro = false) {
     baseUrl: DEEPSEEK_PRO_BASE_URL,
     model: DEEPSEEK_PRO_MODEL,
     temperature: 0.25,
-    maxTokens: 3200
+    maxTokens: 900
   };
 }
 
 function modelPromptLine(config) {
-  return "当前使用 DeepSeek V4 Pro：所有题目都必须先自检条件、目标、隐含约束、是否需要分类讨论或画结构图；不要给出未经核验的结论。必须输出可展示给学生的内容，不能输出空回复。";
+  return "当前使用 DeepSeek V4 Pro 低延迟教学模式：先给学生一段可读、可继续回答的短提示，不能空回复，不能长篇推理。";
 }
 
 function deepSeekMessageText(message) {
@@ -613,6 +610,55 @@ function normalizeDiagram(value) {
     nodes: cleanNodes,
     edges: cleanEdges
   };
+}
+
+function latestUserText(messages) {
+  const latest = [...messages].reverse().find(message => message.role === "user");
+  return deepSeekMessageText(latest);
+}
+
+function shouldShowLocalDiagram(messages) {
+  const text = latestUserText(messages);
+  const historyText = messages.slice(-4).map(message => deepSeekMessageText(message)).join("\n");
+  if (/画图|结构图|图解|画出来|关系图|示意图|看图理解/.test(text)) return true;
+  if (messages.filter(message => message.role === "user").length >= 2 && /不会|不懂|卡住|没思路|不知道|错了|再讲|为什么/.test(text)) return true;
+  return /几何|证明|钟|追及|相遇|工程|行程|函数|参数|分类讨论|数列|导数|圆|三角形|面积|体积|概率/.test(historyText)
+    && messages.filter(message => message.role === "user").length >= 2;
+}
+
+function buildLocalDiagram(messages) {
+  const text = latestUserText(messages).replace(/\s+/g, " ").slice(0, 40) || "当前题目";
+  return {
+    title: "解题结构图",
+    nodes: [
+      { id: "n1", label: "题目条件", type: "given" },
+      { id: "n2", label: "要求什么", type: "goal" },
+      { id: "n3", label: "关键关系", type: "relation" },
+      { id: "n4", label: "先做一步", type: "step" },
+      { id: "n5", label: "检查结果", type: "check" }
+    ],
+    edges: [
+      { from: "n1", to: "n2", label: "读题定位" },
+      { from: "n1", to: "n3", label: "找规律" },
+      { from: "n3", to: "n4", label: "列第一步" },
+      { from: "n4", to: "n5", label: "回到问题" }
+    ],
+    note: text
+  };
+}
+
+function fallbackTeachingReply(messages) {
+  const text = latestUserText(messages);
+  if (/钟|时间|秒|分钟|小时/.test(text)) {
+    return "这道题先别急着算总秒数。你先观察两个相邻整点之间，钟响间隔增加了多少秒？比如从 1 点到 2 点是 5 秒，从 2 点到 3 点是 6 秒，那 3 点到 4 点应该是多少秒？";
+  }
+  if (/分数|除|÷/.test(text)) {
+    return "我们先把题目里的数量关系说清楚。你先告诉我：题目给了哪些数？要求我们求什么？如果有除法，第一步通常要不要把除数变成倒数？";
+  }
+  if (/几何|证明|三角形|圆|角|平行|垂直/.test(text)) {
+    return "这道题先从图形条件入手。你先说说图里已知哪些相等、平行、垂直或角度关系？我们先找一条最可能连接已知和结论的线索。";
+  }
+  return "我先帮你定位第一步。你先不用完整解出来，只要说：题目给了哪些条件？最后要求什么？你觉得第一步可以从哪个数量或关系开始？";
 }
 
 async function requestDeepSeek(messages, profile, config, options = {}) {
@@ -672,21 +718,24 @@ async function callDeepSeekWithConfig(messages, profile, config) {
     result = await requestDeepSeek(messages, profile, config);
   } catch (error) {
     result = await requestDeepSeek(messages, profile, config, {
-      retryHint: "请输出一个合法 JSON 对象，包含 answer、diagramAction、diagram 三个字段。",
+      retryHint: "请只输出一段 80 字以内的中文启发问题，不要 JSON，不要完整解题。",
       compatibilityMode: true
     });
   }
   if (result.raw) return result;
 
   result = await requestDeepSeek(messages, profile, config, {
-    retryHint: "上一轮模型内容为空。请立刻输出一个合法 JSON 对象，必须包含 answer、diagramAction、diagram 三个字段；不要输出空内容。",
+    retryHint: "上一轮模型内容为空。请只输出一段 80 字以内的中文启发问题，不要 JSON，不要完整解题。",
     compatibilityMode: true,
-    maxTokens: 3200
+    maxTokens: 600
   });
 
   if (!result.raw) {
-    const finishReason = result.data?.choices?.[0]?.finish_reason || "unknown";
-    throw new Error(`模型返回为空：DeepSeek V4 Pro 本次没有生成可展示内容。finish_reason=${finishReason}。请检查模型权限、账户余额，或稍后重试。`);
+    return {
+      raw: fallbackTeachingReply(messages),
+      config,
+      data: result.data
+    };
   }
   return result;
 }
@@ -710,7 +759,7 @@ async function callDeepSeek(messages, profile) {
       baseUrl: DEEPSEEK_BASE_URL,
       model: DEEPSEEK_PRO_MODEL,
       temperature: 0.25,
-      maxTokens: 3200
+      maxTokens: 900
     };
     const result = await callDeepSeekWithConfig(messages, profile, fallbackConfig);
     raw = result.raw;
@@ -719,10 +768,11 @@ async function callDeepSeek(messages, profile) {
 
   const parsed = extractJsonObject(raw);
   if (!parsed || typeof parsed !== "object") {
+    const showDiagram = shouldShowLocalDiagram(messages);
     return {
       answer: raw,
-      diagramAction: "hold",
-      diagram: null,
+      diagramAction: showDiagram ? "show" : "hold",
+      diagram: showDiagram ? buildLocalDiagram(messages) : null,
       modelTier: usedConfig.tier,
       model: usedConfig.model
     };
