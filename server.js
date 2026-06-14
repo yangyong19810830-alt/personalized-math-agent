@@ -562,6 +562,17 @@ function modelPromptLine(config) {
   return "当前使用 DeepSeek V4 Pro 强推理模式：所有题目都必须先自检条件、目标、隐含约束、是否需要分类讨论或画结构图；不要给出未经核验的结论。";
 }
 
+function deepSeekMessageText(message) {
+  const content = message?.content;
+  if (Array.isArray(content)) {
+    return content
+      .map(item => typeof item === "string" ? item : item?.text || item?.content || "")
+      .join("")
+      .trim();
+  }
+  return String(content || "").trim();
+}
+
 function extractJsonObject(text) {
   const raw = String(text || "").trim();
   if (!raw) return null;
@@ -604,7 +615,7 @@ function normalizeDiagram(value) {
   };
 }
 
-async function callDeepSeekWithConfig(messages, profile, config) {
+async function requestDeepSeek(messages, profile, config, options = {}) {
   if (!config.apiKey) {
     throw new Error("服务端尚未配置 DEEPSEEK_API_KEY");
   }
@@ -615,10 +626,24 @@ async function callDeepSeekWithConfig(messages, profile, config) {
     max_tokens: config.maxTokens,
     stream: false,
     messages: [
-      { role: "system", content: `${systemPrompt(profile || {})}\n${modelPromptLine(config)}` },
+      {
+        role: "system",
+        content: [
+          systemPrompt(profile || {}),
+          modelPromptLine(config),
+          options.retryHint || ""
+        ].filter(Boolean).join("\n")
+      },
       ...messages.slice(-10)
     ]
   };
+  if (config.tier.startsWith("pro") && !options.compatibilityMode) {
+    payload.thinking = { type: "enabled" };
+    payload.reasoning_effort = "high";
+  }
+  if (options.jsonMode !== false && !options.compatibilityMode) {
+    payload.response_format = { type: "json_object" };
+  }
 
   const response = await fetch(`${config.baseUrl}/chat/completions`, {
     method: "POST",
@@ -634,11 +659,35 @@ async function callDeepSeekWithConfig(messages, profile, config) {
     throw new Error(data.error?.message || data.message || `DeepSeek API 错误：${response.status}`);
   }
 
-  const raw = (data.choices?.[0]?.message?.content || "").trim();
-  if (!raw) {
-    throw new Error("模型返回为空，请检查模型名或账号权限");
+  return {
+    raw: deepSeekMessageText(data.choices?.[0]?.message),
+    config,
+    data
+  };
+}
+
+async function callDeepSeekWithConfig(messages, profile, config) {
+  let result;
+  try {
+    result = await requestDeepSeek(messages, profile, config);
+  } catch (error) {
+    result = await requestDeepSeek(messages, profile, config, {
+      retryHint: "请输出一个合法 JSON 对象，包含 answer、diagramAction、diagram 三个字段。",
+      jsonMode: false,
+      compatibilityMode: true
+    });
   }
-  return { raw, config };
+  if (result.raw) return result;
+
+  result = await requestDeepSeek(messages, profile, config, {
+    retryHint: "上一轮模型内容为空。请立刻输出一个合法 JSON 对象，必须包含 answer、diagramAction、diagram 三个字段；不要输出空内容。",
+    jsonMode: false
+  });
+
+  if (!result.raw) {
+    throw new Error("模型返回为空：DeepSeek V4 Pro 本次没有生成可展示内容。请检查模型权限、账户余额，或稍后重试。");
+  }
+  return result;
 }
 
 async function callDeepSeek(messages, profile) {
