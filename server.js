@@ -7,11 +7,11 @@ const PORT = Number(process.env.PORT || 8787);
 const ROOT = __dirname;
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || "";
 const DEEPSEEK_BASE_URL = (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com").replace(/\/$/, "");
-const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || "deepseek-v4-flash";
+const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || "deepseek-v4-pro";
 const DEEPSEEK_PRO_API_KEY = process.env.DEEPSEEK_PRO_API_KEY || DEEPSEEK_API_KEY;
 const DEEPSEEK_PRO_BASE_URL = (process.env.DEEPSEEK_PRO_BASE_URL || DEEPSEEK_BASE_URL).replace(/\/$/, "");
 const DEEPSEEK_PRO_MODEL = process.env.DEEPSEEK_PRO_MODEL || "deepseek-v4-pro";
-const DEEPSEEK_PRO_FALLBACK = String(process.env.DEEPSEEK_PRO_FALLBACK || "true").toLowerCase() !== "false";
+const DEEPSEEK_PRO_FALLBACK = String(process.env.DEEPSEEK_PRO_FALLBACK || "false").toLowerCase() === "true";
 const VISION_API_KEY = process.env.VISION_API_KEY || "";
 const VISION_PROVIDER = (process.env.VISION_PROVIDER || "zhipu").toLowerCase();
 const VISION_BASE_URL = (process.env.VISION_BASE_URL || "https://open.bigmodel.cn/api/paas/v4").replace(/\/$/, "");
@@ -547,40 +547,19 @@ function systemPrompt(profile) {
   ].join("\n");
 }
 
-function needsProModel(messages, profile = {}) {
-  const stage = String(profile.stage || "");
-  if (["初中", "高中", "大学"].includes(stage)) return true;
-  const text = messages
-    .slice(-4)
-    .map(message => String(message.content || ""))
-    .join("\n");
-  return /证明|几何|函数|参数|分类讨论|不等式|方程组|二次函数|三角形|圆|相似|全等|数列|导数|概率|解析几何|向量|极限|积分|矩阵|中学|初中|高中|大学|深度|严谨|检查|验算/.test(text);
-}
-
 function deepSeekConfig(messages, profile = {}, forcePro = false) {
-  const usePro = forcePro || needsProModel(messages, profile);
-  return usePro
-    ? {
-        tier: "pro",
-        apiKey: DEEPSEEK_PRO_API_KEY,
-        baseUrl: DEEPSEEK_PRO_BASE_URL,
-        model: DEEPSEEK_PRO_MODEL,
-        temperature: 0.25,
-        maxTokens: 1800
-      }
-    : {
-        tier: "flash",
-        apiKey: DEEPSEEK_API_KEY,
-        baseUrl: DEEPSEEK_BASE_URL,
-        model: DEEPSEEK_MODEL,
-        temperature: 0.4,
-        maxTokens: 1200
-      };
+  return {
+    tier: "pro",
+    apiKey: DEEPSEEK_PRO_API_KEY,
+    baseUrl: DEEPSEEK_PRO_BASE_URL,
+    model: DEEPSEEK_PRO_MODEL,
+    temperature: 0.25,
+    maxTokens: 1800
+  };
 }
 
 function modelPromptLine(config) {
-  if (config.tier !== "pro") return "当前使用普通推理模式：回答要简洁，先启发，不抢答。";
-  return "当前使用强推理模式：面对中学及以上题目，必须先自检条件、目标、隐含约束、是否需要分类讨论或画结构图；不要给出未经核验的结论。";
+  return "当前使用 DeepSeek V4 Pro 强推理模式：所有题目都必须先自检条件、目标、隐含约束、是否需要分类讨论或画结构图；不要给出未经核验的结论。";
 }
 
 function extractJsonObject(text) {
@@ -676,12 +655,12 @@ async function callDeepSeek(messages, profile) {
       throw error;
     }
     const fallbackConfig = {
-      tier: "flash-fallback",
+      tier: "pro-retry",
       apiKey: DEEPSEEK_API_KEY,
       baseUrl: DEEPSEEK_BASE_URL,
-      model: DEEPSEEK_MODEL,
-      temperature: 0.35,
-      maxTokens: 1400
+      model: DEEPSEEK_PRO_MODEL,
+      temperature: 0.25,
+      maxTokens: 1800
     };
     const result = await callDeepSeekWithConfig(messages, profile, fallbackConfig);
     raw = result.raw;
