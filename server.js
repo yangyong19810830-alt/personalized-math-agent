@@ -523,40 +523,59 @@ function serveFile(req, res) {
 }
 
 function systemPrompt(profile) {
+  const mode = profile?.mode === "讲解模式" ? "讲解模式" : "启发模式";
+  const modeRules = mode === "讲解模式"
+    ? [
+        "当前回复模式：讲解模式。",
+        "可以讲完整，但要结构化，不要只堆步骤。建议 350-700 个汉字。",
+        "默认结构：真正难点；找对象；定单位/标准；搭关系；选择表达方式；关键步骤；易错点；一句话结构总结；1 道变式问题。",
+        "每个关键算式都要解释它表达的关系。讲完后要求学生用一句话复述，减少答案依赖。"
+      ]
+    : [
+        "当前回复模式：启发模式。",
+        "不要完整解题，回复建议 120-240 个汉字，但不能只问一句。",
+        "默认结构：这题先看什么；对象/单位/关系中的一个关键提示；让学生回答一个具体小问题。",
+        "必须留下可操作的下一步，例如让学生说出单位 1、相邻关系、图中已知关系、第一步算式表达什么。"
+      ];
   return [
     "你是一个面向小学到大学学生的个性化数学学习智能体。",
-    "核心教学观：先判断学生已有基础、当前卡点和可推进的下一步，再帮助学生形成稳定理解。",
+    "核心教学观：数学学习不是会算，而是把题目世界结构化。",
+    "底层流程：进入问题场；找对象；定单位/标准；搭关系；选表达方式；生成路径；解释验证；迁移创造。",
+    "优先检查：对象是否清楚、单位/标准是否清楚、关系是否建立、表达方式是否合适、过程是否可控、条件边界是否被误用、能否迁移、能否复述。",
     "回答必须使用数学教育本地话语，不能暴露任何内部理论标签或框架名。",
     "禁止在输出中使用这些词：SDE、纠缠、差异序列、结构显露、显露态、六爪、抓核、抓裂缝、改姓、锻造、投放、本体论、空虚混沌、发生链、在 E 中、经 D、成 S。",
     "数学公式优先用学生可直接读懂的普通文本或 Unicode 符号，例如 x <= (a-2)/4、x ≥ -1、3/4 ÷ 1/8。不要输出 \\dfrac、\\leqslant、\\begin{cases} 这类 LaTeX 原码。只有确实需要时才用 $...$ 包裹简单公式。",
     "如果题目中带有 LaTeX 原码，要先把它翻译成自然数学表达，再启发学生。",
-    "不要一上来直接给完整答案。先定位卡点，再给一层提示，再要求学生补充条件或第一步；必要时给分层讲解。",
+    "不要机械问“已知什么、求什么”。要帮助学生看见：题里有哪些对象，标准是谁，谁和谁有什么关系，适合用图、表、式还是方程表达。",
     "网页右侧有解题结构图，但不能一开始就给完整结构图。真正的教学要先让学生思考。",
-    "默认策略：第一次看到具体题目时，先不画完整结构图，只提出 1-2 个启发问题，让学生说已知条件、目标或第一步想法。",
+    "启发模式下，第一次看到具体题目时，先不画完整结构图，只提出关键观察和下一步问题。",
+    "讲解模式下，可以更完整地讲，但仍然要解释每一步为什么长出来，最后留下结构总结和变式。",
     "只有在以下情况才画结构图：学生主动要求画图；学生已经回答了自己的想法；学生明显卡住或回答错误；题目复杂到没有图很难继续。",
     "结构图一旦出现，也应服务于启发，不要直接把所有计算细节和最终答案全暴露。可以先画局部结构，再逐步补全。",
     `学生阶段：${profile.stage || "小学"}。`,
+    `回复模式：${mode}。`,
     `学习目标：${profile.goal || "补齐薄弱知识"}。`,
     `当前状态：${profile.state || "局部会做但不稳定"}。`,
+    ...modeRules,
     "输出要求：直接给学生看的自然语言，不要输出 JSON，不要 Markdown，不要代码块。",
-    "回复要短，通常 80-180 个汉字。先问关键启发问题，不要一上来完整解题。",
     "如果学生主动要求画图，可以在文字中说“我先把关系画出来”，但不要输出图形数据。"
   ].join("\n");
 }
 
 function deepSeekConfig(messages, profile = {}, forcePro = false) {
+  const isExplanation = profile?.mode === "讲解模式";
   return {
     tier: "pro",
     apiKey: DEEPSEEK_PRO_API_KEY,
     baseUrl: DEEPSEEK_PRO_BASE_URL,
     model: DEEPSEEK_PRO_MODEL,
     temperature: 0.25,
-    maxTokens: 900
+    maxTokens: isExplanation ? 1600 : 900
   };
 }
 
 function modelPromptLine(config) {
-  return "当前使用 DeepSeek V4 Pro 低延迟教学模式：先给学生一段可读、可继续回答的短提示，不能空回复，不能长篇推理。";
+  return "当前使用 DeepSeek V4 Pro：必须先输出可读内容，不能空回复；讲解要围绕对象、单位/标准、关系、表达方式、验证迁移。";
 }
 
 function deepSeekMessageText(message) {
@@ -617,10 +636,11 @@ function latestUserText(messages) {
   return deepSeekMessageText(latest);
 }
 
-function shouldShowLocalDiagram(messages) {
+function shouldShowLocalDiagram(messages, profile = {}) {
   const text = latestUserText(messages);
   const historyText = messages.slice(-4).map(message => deepSeekMessageText(message)).join("\n");
   if (/画图|结构图|图解|画出来|关系图|示意图|看图理解/.test(text)) return true;
+  if (profile.mode === "讲解模式" && /几何|证明|钟|追及|相遇|工程|行程|函数|参数|分类讨论|数列|导数|圆|三角形|面积|体积|概率/.test(historyText)) return true;
   if (messages.filter(message => message.role === "user").length >= 2 && /不会|不懂|卡住|没思路|不知道|错了|再讲|为什么/.test(text)) return true;
   return /几何|证明|钟|追及|相遇|工程|行程|函数|参数|分类讨论|数列|导数|圆|三角形|面积|体积|概率/.test(historyText)
     && messages.filter(message => message.role === "user").length >= 2;
@@ -647,8 +667,15 @@ function buildLocalDiagram(messages) {
   };
 }
 
-function fallbackTeachingReply(messages) {
+function fallbackTeachingReply(messages, profile = {}) {
   const text = latestUserText(messages);
+  const isExplanation = profile?.mode === "讲解模式";
+  if (isExplanation && /钟|时间|秒|分钟|小时/.test(text)) {
+    return "这题真正难点不是数钟声，而是数“两个钟声之间的间隔”。从 10 点听到第 4 声，一共有 3 个间隔；相邻整点的间隔规律是 5 秒、6 秒、7 秒……每小时比前一小时多 1 秒。先确定 10 点这 3 个间隔分别是多少，再加起来就是秒表显示的时间。你可以先试着写出这 3 个间隔。";
+  }
+  if (isExplanation) {
+    return "这题先按结构走：第一，找对象，题里哪些量值得被看见；第二，定标准，比如单位 1、一倍、每次、每段或每小时是谁；第三，搭关系，谁和谁比较，什么在变，什么不变；第四，再列式计算。你先把题目里的对象和标准说出来，我再带你把完整关系接上。";
+  }
   if (/钟|时间|秒|分钟|小时/.test(text)) {
     return "这道题先别急着算总秒数。你先观察两个相邻整点之间，钟响间隔增加了多少秒？比如从 1 点到 2 点是 5 秒，从 2 点到 3 点是 6 秒，那 3 点到 4 点应该是多少秒？";
   }
@@ -714,25 +741,29 @@ async function requestDeepSeek(messages, profile, config, options = {}) {
 
 async function callDeepSeekWithConfig(messages, profile, config) {
   let result;
+  const isExplanation = profile?.mode === "讲解模式";
+  const retryHint = isExplanation
+    ? "请输出一段 300 字以内的中文结构化讲解，包含：难点、对象、单位/标准、关系、第一步、易错点。不要 JSON。"
+    : "请只输出一段 120 字以内的中文启发提示，包含一个观察点和一个具体追问。不要 JSON，不要完整解题。";
   try {
     result = await requestDeepSeek(messages, profile, config);
   } catch (error) {
     result = await requestDeepSeek(messages, profile, config, {
-      retryHint: "请只输出一段 80 字以内的中文启发问题，不要 JSON，不要完整解题。",
+      retryHint,
       compatibilityMode: true
     });
   }
   if (result.raw) return result;
 
   result = await requestDeepSeek(messages, profile, config, {
-    retryHint: "上一轮模型内容为空。请只输出一段 80 字以内的中文启发问题，不要 JSON，不要完整解题。",
+    retryHint: `上一轮模型内容为空。${retryHint}`,
     compatibilityMode: true,
-    maxTokens: 600
+    maxTokens: isExplanation ? 1000 : 600
   });
 
   if (!result.raw) {
     return {
-      raw: fallbackTeachingReply(messages),
+      raw: fallbackTeachingReply(messages, profile),
       config,
       data: result.data
     };
@@ -759,7 +790,7 @@ async function callDeepSeek(messages, profile) {
       baseUrl: DEEPSEEK_BASE_URL,
       model: DEEPSEEK_PRO_MODEL,
       temperature: 0.25,
-      maxTokens: 900
+      maxTokens: profile?.mode === "讲解模式" ? 1600 : 900
     };
     const result = await callDeepSeekWithConfig(messages, profile, fallbackConfig);
     raw = result.raw;
@@ -768,7 +799,7 @@ async function callDeepSeek(messages, profile) {
 
   const parsed = extractJsonObject(raw);
   if (!parsed || typeof parsed !== "object") {
-    const showDiagram = shouldShowLocalDiagram(messages);
+    const showDiagram = shouldShowLocalDiagram(messages, profile);
     return {
       answer: raw,
       diagramAction: showDiagram ? "show" : "hold",

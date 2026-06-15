@@ -430,6 +430,14 @@
           </div>
 
           <div class="field">
+            <label>回复模式</label>
+            <div class="seg" id="modeButtons">
+              <button class="btn active" data-mode="启发模式">启发模式</button>
+              <button class="btn" data-mode="讲解模式">讲解模式</button>
+            </div>
+          </div>
+
+          <div class="field">
             <label for="goal">学习目标</label>
             <select id="goal">
               <option>补齐薄弱知识</option>
@@ -461,10 +469,10 @@
           </div>
 
           <div class="steps">
-            <div class="step"><strong>1. 定位卡点</strong>先判断是概念、方法、条件关系还是表达卡住。</div>
-            <div class="step"><strong>2. 给一层提示</strong>不直接替学生做完，先推动第一步。</div>
-            <div class="step"><strong>3. 变式巩固</strong>用少量同类题确认理解是否稳定。</div>
-            <div class="step"><strong>4. 家长可观察</strong>看孩子能否说清“为什么这样做”。</div>
+            <div class="step"><strong>1. 找对象</strong>先看题里有哪些人、物、数、图形或数据。</div>
+            <div class="step"><strong>2. 定标准</strong>分数看单位 1，倍数看一倍，变化题看每一步标准。</div>
+            <div class="step"><strong>3. 搭关系</strong>先说清谁和谁比较、变化或保持不变，再计算。</div>
+            <div class="step"><strong>4. 会迁移</strong>做完后能说一句结构总结，并换一道同结构题。</div>
           </div>
         </div>
       </aside>
@@ -499,6 +507,7 @@
 
   <script>
     let stage = "小学";
+    let replyMode = "启发模式";
     let history = [];
     let currentConversationId = "";
     let conversations = [];
@@ -527,6 +536,7 @@
     function profile() {
       return {
         stage,
+        mode: replyMode,
         goal: document.querySelector("#goal").value,
         state: document.querySelector("#state").value
       };
@@ -1269,7 +1279,7 @@
       addMessage(options.displayText || text, "user");
       drawThinking();
       history.push({ role: "user", content: text });
-      const loading = addMessage("正在生成个性化讲解...");
+      const loading = addMessage(replyMode === "讲解模式" ? "正在生成结构化讲解..." : "正在生成启发提示...");
 
       try {
         const res = await fetch("/api/chat", {
@@ -1312,6 +1322,14 @@
       button.addEventListener("click", () => {
         stage = button.dataset.stage;
         document.querySelectorAll("#stageButtons button").forEach(item => item.classList.remove("active"));
+        button.classList.add("active");
+      });
+    });
+
+    document.querySelectorAll("#modeButtons button").forEach(button => {
+      button.addEventListener("click", () => {
+        replyMode = button.dataset.mode;
+        document.querySelectorAll("#modeButtons button").forEach(item => item.classList.remove("active"));
         button.classList.add("active");
       });
     });
