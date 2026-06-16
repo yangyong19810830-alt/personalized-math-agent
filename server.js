@@ -536,16 +536,16 @@ function systemPrompt(profile) {
       ]
     : [
         "当前回复模式：启发模式。",
-        "绝对不要完整解题，不要提前暴露后续路径，不要说“这样就知道答案了”“再算时间/结果”等收尾提示。",
-        "回复建议 80-160 个汉字，只推进下一小步。",
-        "默认结构：肯定学生已完成的一步；指出当前只需要看哪一个对象/单位/关系；只问一个具体小问题。",
-        "如果学生刚算出一个中间量，只追问这个中间量表示哪个对象、使用什么单位/标准、来自哪一句关系；不要告诉下一步怎么用它。"
+        "启发不是越短越好，要保证学生能继续走。回复建议 160-320 个汉字。",
+        "默认结构：先总结学生已经抓住了什么；纠正一个关键误区；补充必要背景；只开放一个新的台阶；最后问一个具体问题。",
+        "如果学生已经连续回答了 2 轮以上，可以把前面内容整合成一个小结，再推进一小步，避免兜圈子。",
+        "不要直接给最终答案；但可以说明当前步骤的意义，以及为什么要看这个对象、单位/标准或关系。"
       ];
   return [
     "你是一个面向小学到大学学生的个性化数学学习智能体。",
     "核心教学观：数学学习不是会算，而是把题目世界结构化。",
     "每次优先检查：对象、单位/标准、关系、表达方式、验证迁移。不要只给答案或堆步骤。",
-    "启发模式的边界：只给一层扶手，只问下一小步；不得透露完整解题路线、最终计算入口或答案判断。",
+    "启发模式的边界：不直接给最终答案，不一次性讲完整路线；但必须有质量，不能反复追问同一个点。学生连续答对时要整合并推进。",
     "对学生说大白话，不暴露内部理论术语。禁止使用：SDE、纠缠、差异序列、结构显露、显露态、六爪、抓核、抓裂缝、改姓、锻造、投放、本体论、发生链、在 E 中、经 D、成 S。",
     "数学公式用学生可读写法，例如 x <= (a-2)/4、x ≥ -1、3/4 ÷ 1/8。尽量不要输出 \\dfrac、\\leqslant、\\begin{cases} 等 LaTeX 原码。",
     "不要机械问“已知什么、求什么”。要帮助学生看见对象、标准、关系，以及适合用图、表、式还是方程表达。",
@@ -567,7 +567,7 @@ function deepSeekConfig(messages, profile = {}, forcePro = false) {
     baseUrl: DEEPSEEK_PRO_BASE_URL,
     model: DEEPSEEK_PRO_MODEL,
     temperature: 0.25,
-    maxTokens: isExplanation ? 1200 : 420
+    maxTokens: isExplanation ? 1200 : 760
   };
 }
 
@@ -579,7 +579,7 @@ function deepSeekFlashConfig(profile = {}) {
     baseUrl: DEEPSEEK_BASE_URL,
     model: DEEPSEEK_FLASH_MODEL,
     temperature: 0.28,
-    maxTokens: isExplanation ? 900 : 320
+    maxTokens: isExplanation ? 900 : 560
   };
 }
 
@@ -693,17 +693,21 @@ function fallbackTeachingReply(messages, profile = {}) {
 
 function nextHeuristicQuestion(messages) {
   const userCount = messages.filter(message => message.role === "user").length;
-  if (userCount >= 2) {
-    return "你这一步已经有进展了。启发模式下我先不往后讲。请你只回答下一小步：刚才得到的这个量表示哪个对象？用的是什么单位或标准？它来自题目里的哪一句关系？";
+  if (userCount >= 4) {
+    return "我们把前面合起来看：你已经找到了一个关键对象，也开始说明它和题目关系了。现在不要停在原地，请往前推进一个台阶：用一句话说清“左边这个表达式表示谁，右边这个表达式表示谁”，然后判断两边为什么应该相等或对应。";
   }
-  return "我们先只走第一小步，不急着解完整题。请你先圈出题里最关键的两个对象或两个量，再说一说：它们各自用什么单位或标准来衡量？";
+  if (userCount >= 2) {
+    return "你这一步是有价值的，但我们不能只停在这个点上。请你把刚才得到的量放回题目里说一句完整的话：它表示哪个对象？单位/标准是什么？它和题目要问的量之间是什么关系？";
+  }
+  return "我们先建立题目的结构，不急着完整解。请你先找两个最关键的对象或量，并分别说出它们的单位/标准；如果题里有变化，也说说哪个量在变，哪个关系保持不变。";
 }
 
 function trimHeuristicReply(text, messages, profile = {}) {
   const value = String(text || "").trim();
   if (profile?.mode === "讲解模式") return value;
-  const revealPattern = /答案|就能求出|就知道|最后|结果|再用|除以|相减|相加|相乘|列方程|设|所以|因此|接下来|下一步.*算|用.*求|即可|=|÷/;
-  if (!revealPattern.test(value) && value.length <= 180) return value;
+  const hardRevealPattern = /答案是|最终答案|所以答案|最后答案|直接得到答案|把答案算出来|完整解法如下/;
+  const routeRevealPattern = /接下来.*(除以|相除|列方程求出|代入求出|直接求出)|再用.*(除以|相除).*就|这样就知道|即可得到/;
+  if (!hardRevealPattern.test(value) && !routeRevealPattern.test(value) && value.length <= 420) return value;
   return nextHeuristicQuestion(messages);
 }
 
@@ -777,7 +781,7 @@ async function callFlashFallback(messages, profile, reason = "") {
   return requestDeepSeek(messages, profile, flashConfig, {
     retryHint: isExplanation
       ? `Pro 响应较慢或为空，已切换快速模型。请输出 260 字以内的结构化讲解，包含难点、对象、单位/标准、关系、第一步。不要 JSON。原因：${reason}`
-      : `Pro 响应较慢或为空，已切换快速模型。请输出 100 字以内的启发提示：只肯定学生当前一步，只问下一小步。禁止说完整路径、最终答案、再用什么算。不要 JSON。原因：${reason}`,
+      : `Pro 响应较慢或为空，已切换快速模型。请输出 180-260 字的高质量启发：总结学生已完成的点，纠正一个误区，补充必要背景，只推进一个新台阶，最后问一个具体问题。不要最终答案，不要完整路线，不要 JSON。原因：${reason}`,
     maxTokens: flashConfig.maxTokens,
     timeoutMs: 3000
   });
