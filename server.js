@@ -535,8 +535,9 @@ function systemPrompt(profile, messages = []) {
   const modeRules = mode === "讲解模式"
     ? [
         "当前回复模式：讲解模式。",
-        "可以讲完整，但要结构化，不要只堆步骤。建议 350-700 个汉字。",
+        "可以讲完整，但要结构化，不要只堆步骤。建议 450-900 个汉字，必须把结尾讲完整，最后用一句话收束。",
         "默认结构：真正难点；找对象；定单位/标准；搭关系；选择表达方式；关键步骤；易错点；一句话结构总结；1 道变式问题。",
+        "讲解时，找出对象和对象之间的关系后，要立刻说“我们把这个关系画成结构图来看”。图不是装饰，而是把关系具体化、模型化：对象是点，关系是边，单位/标准和变化量要在图里显出来。",
         "每个关键算式都要解释它表达的关系。讲完后要求学生用一句话复述，减少答案依赖。"
       ]
     : [
@@ -562,7 +563,7 @@ function systemPrompt(profile, messages = []) {
     `当前状态：${profile.state || "局部会做但不稳定"}。`,
     ...modeRules,
     "输出要求：直接给学生看的自然语言，不要输出 JSON，不要 Markdown，不要代码块。",
-    "如果学生主动要求画图，可以在文字中说“我先把关系画出来”，但不要输出图形数据。"
+    "如果学生主动要求画图，或当前是讲解模式并且已经找出对象关系，可以在文字中说“我先把关系画出来”，但不要输出图形数据。"
   ].join("\n");
 }
 
@@ -574,7 +575,7 @@ function deepSeekConfig(messages, profile = {}, forcePro = false) {
     baseUrl: DEEPSEEK_PRO_BASE_URL,
     model: DEEPSEEK_PRO_MODEL,
     temperature: 0.25,
-    maxTokens: isExplanation ? 1200 : 900
+    maxTokens: isExplanation ? 2200 : 900
   };
 }
 
@@ -586,7 +587,7 @@ function deepSeekFlashConfig(profile = {}) {
     baseUrl: DEEPSEEK_BASE_URL,
     model: DEEPSEEK_FLASH_MODEL,
     temperature: 0.28,
-    maxTokens: isExplanation ? 900 : 680
+    maxTokens: isExplanation ? 1400 : 680
   };
 }
 
@@ -659,30 +660,123 @@ function shouldShowLocalDiagram(messages, profile = {}) {
   const text = latestUserText(messages);
   const historyText = messages.slice(-4).map(message => deepSeekMessageText(message)).join("\n");
   if (/画图|结构图|图解|画出来|关系图|示意图|看图理解/.test(text)) return true;
-  if (profile.mode === "讲解模式" && /几何|证明|钟|追及|相遇|工程|行程|函数|参数|分类讨论|数列|导数|圆|三角形|面积|体积|概率/.test(historyText)) return true;
+  if (profile.mode === "讲解模式") return true;
   if (messages.filter(message => message.role === "user").length >= 2 && /不会|不懂|卡住|没思路|不知道|错了|再讲|为什么/.test(text)) return true;
   return /几何|证明|钟|追及|相遇|工程|行程|函数|参数|分类讨论|数列|导数|圆|三角形|面积|体积|概率/.test(historyText)
     && messages.filter(message => message.role === "user").length >= 2;
 }
 
-function buildLocalDiagram(messages) {
-  const text = latestUserText(messages).replace(/\s+/g, " ").slice(0, 40) || "当前题目";
+function buildLocalDiagram(messages, answer = "") {
+  const text = latestUserText(messages).replace(/\s+/g, " ");
+  const context = `${text}\n${answer}`.replace(/\s+/g, " ");
+
+  if (/爸爸|妈妈|儿子|女儿|年龄|岁|倍/.test(context)) {
+    return {
+      title: "年龄关系结构图",
+      nodes: [
+        { id: "n1", label: "儿子今年年龄", type: "given" },
+        { id: "n2", label: "爸爸今年年龄", type: "given" },
+        { id: "n3", label: "今年倍数关系", type: "relation" },
+        { id: "n4", label: "10年后同时增加", type: "step" },
+        { id: "n5", label: "10年后倍数关系", type: "relation" },
+        { id: "n6", label: "求今年各几岁", type: "goal" }
+      ],
+      edges: [
+        { from: "n1", to: "n3", label: "作为1份" },
+        { from: "n3", to: "n2", label: "爸爸是4份" },
+        { from: "n1", to: "n4", label: "+10岁" },
+        { from: "n2", to: "n4", label: "+10岁" },
+        { from: "n4", to: "n5", label: "爸爸=儿子2倍" },
+        { from: "n5", to: "n6", label: "反推今年" }
+      ],
+      note: "图里重点看两次倍数关系，以及两个人都增加10岁。"
+    };
+  }
+
+  if (/重复|排列|顺序|第\s*\d+|周期|颜色|彩灯|循环/.test(context)) {
+    return {
+      title: "周期排列结构图",
+      nodes: [
+        { id: "n1", label: "最小重复组", type: "given" },
+        { id: "n2", label: "每组几个位置", type: "relation" },
+        { id: "n3", label: "目标位置", type: "goal" },
+        { id: "n4", label: "除以组长看余数", type: "step" },
+        { id: "n5", label: "余数对应颜色", type: "result" },
+        { id: "n6", label: "统计某颜色个数", type: "check" }
+      ],
+      edges: [
+        { from: "n1", to: "n2", label: "形成一组" },
+        { from: "n3", to: "n4", label: "定位第几组" },
+        { from: "n2", to: "n4", label: "作为除数" },
+        { from: "n4", to: "n5", label: "余数定位" },
+        { from: "n1", to: "n6", label: "按整组统计" }
+      ],
+      note: "图里重点看：一组的长度、目标位置的余数、整组里的颜色分布。"
+    };
+  }
+
+  if (/水池|水管|进水|出水|放水|注水|工程|工作|效率|小时|天/.test(context)) {
+    return {
+      title: "单位量与速度结构图",
+      nodes: [
+        { id: "n1", label: "总量", type: "given" },
+        { id: "n2", label: "进水/工作速度", type: "relation" },
+        { id: "n3", label: "出水/另一速度", type: "relation" },
+        { id: "n4", label: "净变化速度", type: "step" },
+        { id: "n5", label: "所需时间", type: "goal" },
+        { id: "n6", label: "回题检查单位", type: "check" }
+      ],
+      edges: [
+        { from: "n1", to: "n2", label: "总量÷时间" },
+        { from: "n1", to: "n3", label: "总量÷时间" },
+        { from: "n2", to: "n4", label: "增加" },
+        { from: "n3", to: "n4", label: "减少" },
+        { from: "n4", to: "n5", label: "总量÷净速" },
+        { from: "n5", to: "n6", label: "单位核对" }
+      ],
+      note: "图里重点看每小时变化多少，最后用总量除以净变化速度。"
+    };
+  }
+
+  if (/钟|钟声|整点|间隔|秒|分钟|小时/.test(context)) {
+    return {
+      title: "钟声间隔结构图",
+      nodes: [
+        { id: "n1", label: "听到几声", type: "given" },
+        { id: "n2", label: "声数转间隔数", type: "relation" },
+        { id: "n3", label: "每段间隔规律", type: "relation" },
+        { id: "n4", label: "相加得到用时", type: "step" },
+        { id: "n5", label: "秒表显示", type: "goal" }
+      ],
+      edges: [
+        { from: "n1", to: "n2", label: "少1个间隔" },
+        { from: "n2", to: "n3", label: "确定段数" },
+        { from: "n3", to: "n4", label: "逐段相加" },
+        { from: "n4", to: "n5", label: "得到时间" }
+      ],
+      note: "图里重点看：数的是间隔，不是钟声本身。"
+    };
+  }
+
+  const brief = text.slice(0, 40) || "当前题目";
   return {
-    title: "解题结构图",
+    title: "对象关系结构图",
     nodes: [
-      { id: "n1", label: "题目条件", type: "given" },
-      { id: "n2", label: "要求什么", type: "goal" },
-      { id: "n3", label: "关键关系", type: "relation" },
-      { id: "n4", label: "先做一步", type: "step" },
-      { id: "n5", label: "检查结果", type: "check" }
+      { id: "n1", label: "关键对象", type: "given" },
+      { id: "n2", label: "单位/标准", type: "given" },
+      { id: "n3", label: "对象之间关系", type: "relation" },
+      { id: "n4", label: "表达成图/式/表", type: "step" },
+      { id: "n5", label: "目标结果", type: "goal" },
+      { id: "n6", label: "代回检查", type: "check" }
     ],
     edges: [
-      { from: "n1", to: "n2", label: "读题定位" },
-      { from: "n1", to: "n3", label: "找规律" },
-      { from: "n3", to: "n4", label: "列第一步" },
-      { from: "n4", to: "n5", label: "回到问题" }
+      { from: "n1", to: "n2", label: "先定标准" },
+      { from: "n2", to: "n3", label: "比较/变化" },
+      { from: "n3", to: "n4", label: "模型化" },
+      { from: "n4", to: "n5", label: "推到目标" },
+      { from: "n5", to: "n6", label: "回题验证" }
     ],
-    note: text
+    note: brief
   };
 }
 
@@ -724,12 +818,19 @@ function isLikelyIncomplete(text) {
 
 function trimHeuristicReply(text, messages, profile = {}) {
   const value = String(text || "").trim();
-  if (profile?.mode === "讲解模式") return value;
+  if (profile?.mode === "讲解模式") {
+    if (isLikelyIncomplete(value)) return fallbackTeachingReply(messages, profile);
+    return value;
+  }
   if (isLikelyIncomplete(value)) return nextHeuristicQuestion(messages);
   const hardRevealPattern = /答案是|最终答案|所以答案|最后答案|直接得到答案|把答案算出来|完整解法如下/;
   const routeRevealPattern = /接下来.*(除以|相除|列方程求出|代入求出|直接求出)|再用.*(除以|相除).*就|这样就知道|即可得到/;
   if (!hardRevealPattern.test(value) && !routeRevealPattern.test(value) && value.length <= 420) return value;
   return nextHeuristicQuestion(messages);
+}
+
+function isLengthCutoff(result) {
+  return result?.data?.choices?.[0]?.finish_reason === "length";
 }
 
 async function requestDeepSeek(messages, profile, config, options = {}) {
@@ -827,6 +928,17 @@ async function callDeepSeekWithConfig(messages, profile, config) {
     };
   }
   if (result.raw) {
+    if (profile?.mode === "讲解模式" && config.tier === "pro" && (isLengthCutoff(result) || isLikelyIncomplete(result.raw))) {
+      try {
+        const retryResult = await requestDeepSeek(messages, profile, config, {
+          maxTokens: Math.max(config.maxTokens, 2600),
+          retryHint: "上一版讲解被截断或没有完整收束。请重新生成一版完整讲解：保留结构化说明，但控制在 500-900 个汉字；必须讲到最终关系和答案核对；最后用完整句号结束，不要停在半句话。"
+        });
+        if (retryResult.raw && !isLikelyIncomplete(retryResult.raw)) {
+          result = retryResult;
+        }
+      } catch {}
+    }
     result.raw = trimHeuristicReply(result.raw, messages, profile);
     return result;
   }
@@ -867,7 +979,7 @@ async function callDeepSeek(messages, profile) {
       baseUrl: DEEPSEEK_BASE_URL,
       model: DEEPSEEK_PRO_MODEL,
       temperature: 0.25,
-      maxTokens: profile?.mode === "讲解模式" ? 1200 : 900
+      maxTokens: profile?.mode === "讲解模式" ? 2200 : 900
     };
     const result = await callDeepSeekWithConfig(messages, profile, fallbackConfig);
     raw = result.raw;
@@ -880,16 +992,19 @@ async function callDeepSeek(messages, profile) {
     return {
       answer: raw,
       diagramAction: showDiagram ? "show" : "hold",
-      diagram: showDiagram ? buildLocalDiagram(messages) : null,
+      diagram: showDiagram ? buildLocalDiagram(messages, raw) : null,
       modelTier: usedConfig.tier,
       model: usedConfig.model
     };
   }
+  const shouldForceDiagram = shouldShowLocalDiagram(messages, profile);
   const action = ["hold", "show", "update"].includes(parsed.diagramAction) ? parsed.diagramAction : "hold";
+  const normalizedDiagram = action === "hold" ? null : normalizeDiagram(parsed.diagram);
+  const finalAction = action === "hold" && shouldForceDiagram ? "show" : action;
   return {
     answer: String(parsed.answer || raw).trim(),
-    diagramAction: action,
-    diagram: action === "hold" ? null : normalizeDiagram(parsed.diagram),
+    diagramAction: finalAction,
+    diagram: normalizedDiagram?.nodes?.length ? normalizedDiagram : (finalAction === "hold" ? null : buildLocalDiagram(messages, parsed.answer || raw)),
     modelTier: usedConfig.tier,
     model: usedConfig.model
   };
