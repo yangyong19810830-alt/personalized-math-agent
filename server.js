@@ -536,14 +536,16 @@ function systemPrompt(profile) {
       ]
     : [
         "当前回复模式：启发模式。",
-        "不要完整解题，回复建议 120-240 个汉字，但不能只问一句。",
-        "默认结构：这题先看什么；对象/单位/关系中的一个关键提示；让学生回答一个具体小问题。",
-        "必须留下可操作的下一步，例如让学生说出单位 1、相邻关系、图中已知关系、第一步算式表达什么。"
+        "绝对不要完整解题，不要提前暴露后续路径，不要说“这样就知道答案了”“再算时间/结果”等收尾提示。",
+        "回复建议 80-160 个汉字，只推进下一小步。",
+        "默认结构：肯定学生已完成的一步；指出当前只需要看哪一个对象/单位/关系；只问一个具体小问题。",
+        "如果学生刚算出一个中间量，只追问这个中间量表示哪个对象、使用什么单位/标准、来自哪一句关系；不要告诉下一步怎么用它。"
       ];
   return [
     "你是一个面向小学到大学学生的个性化数学学习智能体。",
     "核心教学观：数学学习不是会算，而是把题目世界结构化。",
     "每次优先检查：对象、单位/标准、关系、表达方式、验证迁移。不要只给答案或堆步骤。",
+    "启发模式的边界：只给一层扶手，只问下一小步；不得透露完整解题路线、最终计算入口或答案判断。",
     "对学生说大白话，不暴露内部理论术语。禁止使用：SDE、纠缠、差异序列、结构显露、显露态、六爪、抓核、抓裂缝、改姓、锻造、投放、本体论、发生链、在 E 中、经 D、成 S。",
     "数学公式用学生可读写法，例如 x <= (a-2)/4、x ≥ -1、3/4 ÷ 1/8。尽量不要输出 \\dfrac、\\leqslant、\\begin{cases} 等 LaTeX 原码。",
     "不要机械问“已知什么、求什么”。要帮助学生看见对象、标准、关系，以及适合用图、表、式还是方程表达。",
@@ -565,7 +567,7 @@ function deepSeekConfig(messages, profile = {}, forcePro = false) {
     baseUrl: DEEPSEEK_PRO_BASE_URL,
     model: DEEPSEEK_PRO_MODEL,
     temperature: 0.25,
-    maxTokens: isExplanation ? 1200 : 700
+    maxTokens: isExplanation ? 1200 : 420
   };
 }
 
@@ -577,7 +579,7 @@ function deepSeekFlashConfig(profile = {}) {
     baseUrl: DEEPSEEK_BASE_URL,
     model: DEEPSEEK_FLASH_MODEL,
     temperature: 0.28,
-    maxTokens: isExplanation ? 900 : 550
+    maxTokens: isExplanation ? 900 : 320
   };
 }
 
@@ -686,16 +688,23 @@ function fallbackTeachingReply(messages, profile = {}) {
   if (isExplanation) {
     return "这题先按结构走：第一，找对象，题里哪些量值得被看见；第二，定标准，比如单位 1、一倍、每次、每段或每小时是谁；第三，搭关系，谁和谁比较，什么在变，什么不变；第四，再列式计算。你先把题目里的对象和标准说出来，我再带你把完整关系接上。";
   }
-  if (/钟|时间|秒|分钟|小时/.test(text)) {
-    return "这道题先别急着算总秒数。你先观察两个相邻整点之间，钟响间隔增加了多少秒？比如从 1 点到 2 点是 5 秒，从 2 点到 3 点是 6 秒，那 3 点到 4 点应该是多少秒？";
+  return nextHeuristicQuestion(messages);
+}
+
+function nextHeuristicQuestion(messages) {
+  const userCount = messages.filter(message => message.role === "user").length;
+  if (userCount >= 2) {
+    return "你这一步已经有进展了。启发模式下我先不往后讲。请你只回答下一小步：刚才得到的这个量表示哪个对象？用的是什么单位或标准？它来自题目里的哪一句关系？";
   }
-  if (/分数|除|÷/.test(text)) {
-    return "我们先把题目里的数量关系说清楚。你先告诉我：题目给了哪些数？要求我们求什么？如果有除法，第一步通常要不要把除数变成倒数？";
-  }
-  if (/几何|证明|三角形|圆|角|平行|垂直/.test(text)) {
-    return "这道题先从图形条件入手。你先说说图里已知哪些相等、平行、垂直或角度关系？我们先找一条最可能连接已知和结论的线索。";
-  }
-  return "我先帮你定位第一步。你先不用完整解出来，只要说：题目给了哪些条件？最后要求什么？你觉得第一步可以从哪个数量或关系开始？";
+  return "我们先只走第一小步，不急着解完整题。请你先圈出题里最关键的两个对象或两个量，再说一说：它们各自用什么单位或标准来衡量？";
+}
+
+function trimHeuristicReply(text, messages, profile = {}) {
+  const value = String(text || "").trim();
+  if (profile?.mode === "讲解模式") return value;
+  const revealPattern = /答案|就能求出|就知道|最后|结果|再用|除以|相减|相加|相乘|列方程|设|所以|因此|接下来|下一步.*算|用.*求|即可|=|÷/;
+  if (!revealPattern.test(value) && value.length <= 180) return value;
+  return nextHeuristicQuestion(messages);
 }
 
 async function requestDeepSeek(messages, profile, config, options = {}) {
@@ -768,7 +777,7 @@ async function callFlashFallback(messages, profile, reason = "") {
   return requestDeepSeek(messages, profile, flashConfig, {
     retryHint: isExplanation
       ? `Pro 响应较慢或为空，已切换快速模型。请输出 260 字以内的结构化讲解，包含难点、对象、单位/标准、关系、第一步。不要 JSON。原因：${reason}`
-      : `Pro 响应较慢或为空，已切换快速模型。请输出 120 字以内的启发提示，包含一个观察点和一个具体追问。不要 JSON。原因：${reason}`,
+      : `Pro 响应较慢或为空，已切换快速模型。请输出 100 字以内的启发提示：只肯定学生当前一步，只问下一小步。禁止说完整路径、最终答案、再用什么算。不要 JSON。原因：${reason}`,
     maxTokens: flashConfig.maxTokens,
     timeoutMs: 3000
   });
@@ -781,26 +790,34 @@ async function callDeepSeekWithConfig(messages, profile, config) {
   } catch (error) {
     if (config.tier === "pro") {
       try {
-        return await callFlashFallback(messages, profile, error.message);
+        const flashResult = await callFlashFallback(messages, profile, error.message);
+        flashResult.raw = trimHeuristicReply(flashResult.raw, messages, profile);
+        return flashResult;
       } catch {}
     }
     return {
-      raw: fallbackTeachingReply(messages, profile),
+      raw: trimHeuristicReply(fallbackTeachingReply(messages, profile), messages, profile),
       config,
       data: { fallback: true, reason: error.message || "request failed" }
     };
   }
-  if (result.raw) return result;
+  if (result.raw) {
+    result.raw = trimHeuristicReply(result.raw, messages, profile);
+    return result;
+  }
 
   if (config.tier === "pro") {
     try {
       const flashResult = await callFlashFallback(messages, profile, "empty model content");
-      if (flashResult.raw) return flashResult;
+      if (flashResult.raw) {
+        flashResult.raw = trimHeuristicReply(flashResult.raw, messages, profile);
+        return flashResult;
+      }
     } catch {}
   }
 
   return {
-    raw: fallbackTeachingReply(messages, profile),
+    raw: trimHeuristicReply(fallbackTeachingReply(messages, profile), messages, profile),
     config,
     data: { fallback: true, reason: "empty model content", original: result.data }
   };
