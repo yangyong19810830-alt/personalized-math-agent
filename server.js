@@ -8,10 +8,13 @@ const ROOT = __dirname;
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || "";
 const DEEPSEEK_BASE_URL = (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com").replace(/\/$/, "");
 const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || "deepseek-v4-pro";
+const DEEPSEEK_FLASH_MODEL = process.env.DEEPSEEK_FLASH_MODEL || "deepseek-v4-flash";
 const DEEPSEEK_PRO_API_KEY = process.env.DEEPSEEK_PRO_API_KEY || DEEPSEEK_API_KEY;
 const DEEPSEEK_PRO_BASE_URL = (process.env.DEEPSEEK_PRO_BASE_URL || DEEPSEEK_BASE_URL).replace(/\/$/, "");
 const DEEPSEEK_PRO_MODEL = process.env.DEEPSEEK_PRO_MODEL || "deepseek-v4-pro";
 const DEEPSEEK_PRO_FALLBACK = String(process.env.DEEPSEEK_PRO_FALLBACK || "false").toLowerCase() === "true";
+const DEEPSEEK_TIMEOUT_MS = Number(process.env.DEEPSEEK_TIMEOUT_MS || 8500);
+const DEEPSEEK_HISTORY_LIMIT = Number(process.env.DEEPSEEK_HISTORY_LIMIT || 6);
 const VISION_API_KEY = process.env.VISION_API_KEY || "";
 const VISION_PROVIDER = (process.env.VISION_PROVIDER || "zhipu").toLowerCase();
 const VISION_BASE_URL = (process.env.VISION_BASE_URL || "https://open.bigmodel.cn/api/paas/v4").replace(/\/$/, "");
@@ -540,18 +543,10 @@ function systemPrompt(profile) {
   return [
     "你是一个面向小学到大学学生的个性化数学学习智能体。",
     "核心教学观：数学学习不是会算，而是把题目世界结构化。",
-    "底层流程：进入问题场；找对象；定单位/标准；搭关系；选表达方式；生成路径；解释验证；迁移创造。",
-    "优先检查：对象是否清楚、单位/标准是否清楚、关系是否建立、表达方式是否合适、过程是否可控、条件边界是否被误用、能否迁移、能否复述。",
-    "回答必须使用数学教育本地话语，不能暴露任何内部理论标签或框架名。",
-    "禁止在输出中使用这些词：SDE、纠缠、差异序列、结构显露、显露态、六爪、抓核、抓裂缝、改姓、锻造、投放、本体论、空虚混沌、发生链、在 E 中、经 D、成 S。",
-    "数学公式优先用学生可直接读懂的普通文本或 Unicode 符号，例如 x <= (a-2)/4、x ≥ -1、3/4 ÷ 1/8。不要输出 \\dfrac、\\leqslant、\\begin{cases} 这类 LaTeX 原码。只有确实需要时才用 $...$ 包裹简单公式。",
-    "如果题目中带有 LaTeX 原码，要先把它翻译成自然数学表达，再启发学生。",
-    "不要机械问“已知什么、求什么”。要帮助学生看见：题里有哪些对象，标准是谁，谁和谁有什么关系，适合用图、表、式还是方程表达。",
-    "网页右侧有解题结构图，但不能一开始就给完整结构图。真正的教学要先让学生思考。",
-    "启发模式下，第一次看到具体题目时，先不画完整结构图，只提出关键观察和下一步问题。",
-    "讲解模式下，可以更完整地讲，但仍然要解释每一步为什么长出来，最后留下结构总结和变式。",
-    "只有在以下情况才画结构图：学生主动要求画图；学生已经回答了自己的想法；学生明显卡住或回答错误；题目复杂到没有图很难继续。",
-    "结构图一旦出现，也应服务于启发，不要直接把所有计算细节和最终答案全暴露。可以先画局部结构，再逐步补全。",
+    "每次优先检查：对象、单位/标准、关系、表达方式、验证迁移。不要只给答案或堆步骤。",
+    "对学生说大白话，不暴露内部理论术语。禁止使用：SDE、纠缠、差异序列、结构显露、显露态、六爪、抓核、抓裂缝、改姓、锻造、投放、本体论、发生链、在 E 中、经 D、成 S。",
+    "数学公式用学生可读写法，例如 x <= (a-2)/4、x ≥ -1、3/4 ÷ 1/8。尽量不要输出 \\dfrac、\\leqslant、\\begin{cases} 等 LaTeX 原码。",
+    "不要机械问“已知什么、求什么”。要帮助学生看见对象、标准、关系，以及适合用图、表、式还是方程表达。",
     `学生阶段：${profile.stage || "小学"}。`,
     `回复模式：${mode}。`,
     `学习目标：${profile.goal || "补齐薄弱知识"}。`,
@@ -570,11 +565,26 @@ function deepSeekConfig(messages, profile = {}, forcePro = false) {
     baseUrl: DEEPSEEK_PRO_BASE_URL,
     model: DEEPSEEK_PRO_MODEL,
     temperature: 0.25,
-    maxTokens: isExplanation ? 1600 : 900
+    maxTokens: isExplanation ? 1200 : 700
+  };
+}
+
+function deepSeekFlashConfig(profile = {}) {
+  const isExplanation = profile?.mode === "讲解模式";
+  return {
+    tier: "flash",
+    apiKey: DEEPSEEK_API_KEY,
+    baseUrl: DEEPSEEK_BASE_URL,
+    model: DEEPSEEK_FLASH_MODEL,
+    temperature: 0.28,
+    maxTokens: isExplanation ? 900 : 550
   };
 }
 
 function modelPromptLine(config) {
+  if (config.tier === "flash") {
+    return "当前使用 DeepSeek Flash 快速兜底模式：优先给学生可继续推进的短回复，围绕对象、单位/标准、关系，不要空回复，不要长篇。";
+  }
   return "当前使用 DeepSeek V4 Pro：必须先输出可读内容，不能空回复；讲解要围绕对象、单位/标准、关系、表达方式、验证迁移。";
 }
 
@@ -707,7 +717,7 @@ async function requestDeepSeek(messages, profile, config, options = {}) {
           options.retryHint || ""
         ].filter(Boolean).join("\n")
       },
-      ...messages.slice(-10)
+      ...messages.slice(-DEEPSEEK_HISTORY_LIMIT)
     ]
   };
   if (config.tier.startsWith("pro") && options.thinkingMode) {
@@ -718,14 +728,27 @@ async function requestDeepSeek(messages, profile, config, options = {}) {
     payload.response_format = { type: "json_object" };
   }
 
-  const response = await fetch(`${config.baseUrl}/chat/completions`, {
-    method: "POST",
-    headers: {
-      "Authorization": `Bearer ${config.apiKey}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify(payload)
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), options.timeoutMs || DEEPSEEK_TIMEOUT_MS);
+  let response;
+  try {
+    response = await fetch(`${config.baseUrl}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${config.apiKey}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(payload),
+      signal: controller.signal
+    });
+  } catch (error) {
+    if (error.name === "AbortError") {
+      throw new Error("DeepSeek 响应超时");
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
 
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
@@ -739,36 +762,48 @@ async function requestDeepSeek(messages, profile, config, options = {}) {
   };
 }
 
+async function callFlashFallback(messages, profile, reason = "") {
+  const isExplanation = profile?.mode === "讲解模式";
+  const flashConfig = deepSeekFlashConfig(profile);
+  return requestDeepSeek(messages, profile, flashConfig, {
+    retryHint: isExplanation
+      ? `Pro 响应较慢或为空，已切换快速模型。请输出 260 字以内的结构化讲解，包含难点、对象、单位/标准、关系、第一步。不要 JSON。原因：${reason}`
+      : `Pro 响应较慢或为空，已切换快速模型。请输出 120 字以内的启发提示，包含一个观察点和一个具体追问。不要 JSON。原因：${reason}`,
+    maxTokens: flashConfig.maxTokens,
+    timeoutMs: 3000
+  });
+}
+
 async function callDeepSeekWithConfig(messages, profile, config) {
   let result;
-  const isExplanation = profile?.mode === "讲解模式";
-  const retryHint = isExplanation
-    ? "请输出一段 300 字以内的中文结构化讲解，包含：难点、对象、单位/标准、关系、第一步、易错点。不要 JSON。"
-    : "请只输出一段 120 字以内的中文启发提示，包含一个观察点和一个具体追问。不要 JSON，不要完整解题。";
   try {
     result = await requestDeepSeek(messages, profile, config);
   } catch (error) {
-    result = await requestDeepSeek(messages, profile, config, {
-      retryHint,
-      compatibilityMode: true
-    });
-  }
-  if (result.raw) return result;
-
-  result = await requestDeepSeek(messages, profile, config, {
-    retryHint: `上一轮模型内容为空。${retryHint}`,
-    compatibilityMode: true,
-    maxTokens: isExplanation ? 1000 : 600
-  });
-
-  if (!result.raw) {
+    if (config.tier === "pro") {
+      try {
+        return await callFlashFallback(messages, profile, error.message);
+      } catch {}
+    }
     return {
       raw: fallbackTeachingReply(messages, profile),
       config,
-      data: result.data
+      data: { fallback: true, reason: error.message || "request failed" }
     };
   }
-  return result;
+  if (result.raw) return result;
+
+  if (config.tier === "pro") {
+    try {
+      const flashResult = await callFlashFallback(messages, profile, "empty model content");
+      if (flashResult.raw) return flashResult;
+    } catch {}
+  }
+
+  return {
+    raw: fallbackTeachingReply(messages, profile),
+    config,
+    data: { fallback: true, reason: "empty model content", original: result.data }
+  };
 }
 
 async function callDeepSeek(messages, profile) {
@@ -790,7 +825,7 @@ async function callDeepSeek(messages, profile) {
       baseUrl: DEEPSEEK_BASE_URL,
       model: DEEPSEEK_PRO_MODEL,
       temperature: 0.25,
-      maxTokens: profile?.mode === "讲解模式" ? 1600 : 900
+      maxTokens: profile?.mode === "讲解模式" ? 1200 : 700
     };
     const result = await callDeepSeekWithConfig(messages, profile, fallbackConfig);
     raw = result.raw;

@@ -30,7 +30,10 @@ DEEPSEEK_API_KEY=你的 DeepSeek API Key
 DEEPSEEK_BASE_URL=https://api.deepseek.com
 DEEPSEEK_MODEL=deepseek-v4-pro
 DEEPSEEK_PRO_MODEL=deepseek-v4-pro
+DEEPSEEK_FLASH_MODEL=deepseek-v4-flash
 DEEPSEEK_PRO_FALLBACK=false
+DEEPSEEK_TIMEOUT_MS=8500
+DEEPSEEK_HISTORY_LIMIT=6
 CHAT_LIMIT_PER_DAY=100
 ADMIN_SECRET=你的管理员口令
 INVITE_CODES_1_DAY=DAY001,DAY002,DAY003
@@ -73,6 +76,8 @@ TENCENT_ASR_ENGINE=16k_zh
 `CHAT_LIMIT_PER_DAY` 可以改成你想给每个账号每天使用的次数。
 
 当前所有数学对话都走 `DEEPSEEK_PRO_MODEL`，默认是 `deepseek-v4-pro`。`DEEPSEEK_MODEL` 也建议同步填写 `deepseek-v4-pro`，避免部署平台仍保留旧的 Flash 配置。`DEEPSEEK_PRO_FALLBACK=false` 表示 Pro 暂时不可用时不自动回退普通模型，避免用户误以为正在使用 Pro。
+
+`DEEPSEEK_TIMEOUT_MS` 控制 Pro 单次等待上限，默认 8.5 秒；超过后会切到 `DEEPSEEK_FLASH_MODEL` 快速兜底。Flash 也异常时，才使用本地教学兜底回复。`DEEPSEEK_HISTORY_LIMIT` 控制每次发给模型的最近对话条数，默认 6 条，能减少延迟。
 
 `ADMIN_SECRET` 是管理员生成和校验邀请码时使用的口令。部署后打开 `/admin.html`，输入这个口令，就可以自动生成带签名的稳定随机邀请码。请保持 `ADMIN_SECRET` 不变；如果更换它，之前生成的邀请码会失效。
 
