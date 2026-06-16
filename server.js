@@ -525,8 +525,13 @@ function serveFile(req, res) {
   });
 }
 
-function systemPrompt(profile) {
+function userMessageCount(messages = []) {
+  return messages.filter(message => message.role === "user").length;
+}
+
+function systemPrompt(profile, messages = []) {
   const mode = profile?.mode === "讲解模式" ? "讲解模式" : "启发模式";
+  const isFirstUserTurn = userMessageCount(messages) <= 1;
   const modeRules = mode === "讲解模式"
     ? [
         "当前回复模式：讲解模式。",
@@ -537,7 +542,9 @@ function systemPrompt(profile) {
     : [
         "当前回复模式：启发模式。",
         "启发不是越短越好，要保证学生能继续走。回复建议 160-320 个汉字。",
-        "默认结构：先总结学生已经抓住了什么；纠正一个关键误区；补充必要背景；只开放一个新的台阶；最后问一个具体问题。",
+        isFirstUserTurn
+          ? "这是用户刚发来的题目，不是学生作答。不要说“你已经抓住了”“你算对了”“你这一步”等反馈语。应先判断题目结构，给一个观察入口和一个具体追问。"
+          : "这是学生已经有过回答后的继续对话。可以先总结学生已完成的部分，纠正一个关键误区，补充必要背景，只开放一个新的台阶，最后问一个具体问题。",
         "如果学生已经连续回答了 2 轮以上，可以把前面内容整合成一个小结，再推进一小步，避免兜圈子。",
         "不要直接给最终答案；但可以说明当前步骤的意义，以及为什么要看这个对象、单位/标准或关系。"
       ];
@@ -567,7 +574,7 @@ function deepSeekConfig(messages, profile = {}, forcePro = false) {
     baseUrl: DEEPSEEK_PRO_BASE_URL,
     model: DEEPSEEK_PRO_MODEL,
     temperature: 0.25,
-    maxTokens: isExplanation ? 1200 : 760
+    maxTokens: isExplanation ? 1200 : 900
   };
 }
 
@@ -579,7 +586,7 @@ function deepSeekFlashConfig(profile = {}) {
     baseUrl: DEEPSEEK_BASE_URL,
     model: DEEPSEEK_FLASH_MODEL,
     temperature: 0.28,
-    maxTokens: isExplanation ? 900 : 560
+    maxTokens: isExplanation ? 900 : 680
   };
 }
 
@@ -693,18 +700,32 @@ function fallbackTeachingReply(messages, profile = {}) {
 
 function nextHeuristicQuestion(messages) {
   const userCount = messages.filter(message => message.role === "user").length;
+  const latest = latestUserText(messages);
   if (userCount >= 4) {
     return "我们把前面合起来看：你已经找到了一个关键对象，也开始说明它和题目关系了。现在不要停在原地，请往前推进一个台阶：用一句话说清“左边这个表达式表示谁，右边这个表达式表示谁”，然后判断两边为什么应该相等或对应。";
   }
   if (userCount >= 2) {
     return "你这一步是有价值的，但我们不能只停在这个点上。请你把刚才得到的量放回题目里说一句完整的话：它表示哪个对象？单位/标准是什么？它和题目要问的量之间是什么关系？";
   }
-  return "我们先建立题目的结构，不急着完整解。请你先找两个最关键的对象或量，并分别说出它们的单位/标准；如果题里有变化，也说说哪个量在变，哪个关系保持不变。";
+  if (/重复|排列|顺序|第\s*\d+|周期|颜色|彩灯|循环/.test(latest)) {
+    return "这是一道新题，我们先看“重复的一组”是什么。请你先不要算答案，只圈出最小循环：从第几个到第几个刚好重复一次？这一组里一共有几个位置？";
+  }
+  return "这是一道新题，我们先不急着算答案。先看题目结构：题里有哪些对象在重复、变化或比较？请你先说出最关键的对象和单位/标准，再说一句：题目真正要我们找的是什么关系？";
+}
+
+function isLikelyIncomplete(text) {
+  const value = String(text || "").trim();
+  if (!value) return true;
+  if (/[。？！.!?]$/.test(value)) return false;
+  if (/[，、：；,;]$/.test(value)) return true;
+  if (/(每|把|用|再|先|请|要|可以|应该|因为|所以|那么|如果|这个|那个|第)$/.test(value)) return true;
+  return value.length > 80;
 }
 
 function trimHeuristicReply(text, messages, profile = {}) {
   const value = String(text || "").trim();
   if (profile?.mode === "讲解模式") return value;
+  if (isLikelyIncomplete(value)) return nextHeuristicQuestion(messages);
   const hardRevealPattern = /答案是|最终答案|所以答案|最后答案|直接得到答案|把答案算出来|完整解法如下/;
   const routeRevealPattern = /接下来.*(除以|相除|列方程求出|代入求出|直接求出)|再用.*(除以|相除).*就|这样就知道|即可得到/;
   if (!hardRevealPattern.test(value) && !routeRevealPattern.test(value) && value.length <= 420) return value;
@@ -725,7 +746,7 @@ async function requestDeepSeek(messages, profile, config, options = {}) {
       {
         role: "system",
         content: [
-          systemPrompt(profile || {}),
+          systemPrompt(profile || {}, messages),
           modelPromptLine(config),
           options.retryHint || ""
         ].filter(Boolean).join("\n")
@@ -846,7 +867,7 @@ async function callDeepSeek(messages, profile) {
       baseUrl: DEEPSEEK_BASE_URL,
       model: DEEPSEEK_PRO_MODEL,
       temperature: 0.25,
-      maxTokens: profile?.mode === "讲解模式" ? 1200 : 700
+      maxTokens: profile?.mode === "讲解模式" ? 1200 : 900
     };
     const result = await callDeepSeekWithConfig(messages, profile, fallbackConfig);
     raw = result.raw;
