@@ -432,7 +432,7 @@
     </header>
 
     <section class="panel auth" id="authPanel">
-      <div class="head"><h2>凭邀请码开始试用</h2></div>
+      <div class="head"><h2>账号登录或首次注册</h2></div>
       <div class="body">
         <div class="field">
           <label for="authName">昵称</label>
@@ -451,10 +451,10 @@
           <input id="inviteCode" placeholder="注册时填写，登录不需要" />
         </div>
         <div class="auth-actions">
-          <button class="btn primary" id="register">注册并登录</button>
-          <button class="btn" id="login">登录</button>
+          <button class="btn primary" id="login">已有账号，直接登录</button>
+          <button class="btn" id="register">首次注册</button>
         </div>
-        <p class="small">新用户需要邀请码才能注册试用。账号用于记录每日试用次数，请不要使用常用重要密码。</p>
+        <p class="small"><strong>已经注册：</strong>只填邮箱和密码，点击“已有账号，直接登录”，不需要邀请码。<br><strong>首次注册：</strong>填写昵称、邮箱、密码和邀请码。</p>
       </div>
     </section>
 
@@ -1203,7 +1203,12 @@
     async function loadQuota() {
       try {
         const res = await fetch("/api/me", { headers: authHeaders() });
-        updateAuthView(await res.json());
+        const data = await res.json();
+        if (authToken && !data.user) {
+          authToken = "";
+          localStorage.removeItem("math_agent_token");
+        }
+        updateAuthView(data);
       } catch {
         quota.textContent = "剩余次数：无法读取";
       }
@@ -1211,11 +1216,13 @@
 
     async function authRequest(path) {
       const payload = {
-        name: document.querySelector("#authName").value.trim(),
         email: document.querySelector("#authEmail").value.trim(),
-        password: document.querySelector("#authPassword").value,
-        inviteCode: document.querySelector("#inviteCode").value.trim()
+        password: document.querySelector("#authPassword").value
       };
+      if (path === "/api/register") {
+        payload.name = document.querySelector("#authName").value.trim();
+        payload.inviteCode = document.querySelector("#inviteCode").value.trim();
+      }
       const res = await fetch(path, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1228,6 +1235,8 @@
       }
       authToken = data.token;
       localStorage.setItem("math_agent_token", authToken);
+      localStorage.setItem("math_agent_has_account", "1");
+      document.querySelector("#inviteCode").value = "";
       updateAuthView(data);
     }
 

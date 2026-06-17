@@ -37,6 +37,8 @@ const TENCENT_ASR_ENDPOINT = process.env.TENCENT_ASR_ENDPOINT || "asr.tencentclo
 const TENCENT_ASR_ENGINE = process.env.TENCENT_ASR_ENGINE || "16k_zh";
 const DAILY_LIMIT = Number(process.env.CHAT_LIMIT_PER_DAY || 100);
 const ADMIN_SECRET = process.env.ADMIN_SECRET || "";
+const AUTH_SECRET = process.env.AUTH_SECRET || ADMIN_SECRET || DEEPSEEK_API_KEY;
+const AUTH_TOKEN_DAYS = Math.max(1, Number(process.env.AUTH_TOKEN_DAYS || 30));
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 const ONE_DAY_INVITE_CODES = parseInviteCodes(process.env.INVITE_CODES_1_DAY || process.env.INVITE_CODES_DAY || "");
 const ONE_MONTH_INVITE_CODES = parseInviteCodes(process.env.INVITE_CODES_1_MONTH || process.env.INVITE_CODES_MONTH || "");
@@ -408,12 +410,48 @@ function saveConversationMessages(user, conversationId, userMessage, assistantMe
 }
 
 function createSession(user) {
+  if (AUTH_SECRET) {
+    const payload = Buffer.from(JSON.stringify({
+      userId: user.id,
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        trialType: user.trialType,
+        trialLabel: user.trialLabel,
+        trialStartsAt: user.trialStartsAt,
+        trialEndsAt: user.trialEndsAt,
+        createdAt: user.createdAt
+      },
+      expiresAt: Date.now() + AUTH_TOKEN_DAYS * ONE_DAY_MS,
+      nonce: crypto.randomBytes(8).toString("hex")
+    }), "utf8").toString("base64url");
+    const signature = crypto.createHmac("sha256", AUTH_SECRET).update(payload).digest("base64url");
+    return `v1.${payload}.${signature}`;
+  }
   const token = crypto.randomBytes(32).toString("hex");
   sessions.set(token, {
     userId: user.id,
     createdAt: Date.now()
   });
   return token;
+}
+
+function persistentSession(token) {
+  if (!AUTH_SECRET || !String(token || "").startsWith("v1.")) return null;
+  const parts = String(token).split(".");
+  if (parts.length !== 3) return null;
+  const payload = parts[1];
+  const provided = Buffer.from(parts[2]);
+  const expected = Buffer.from(crypto.createHmac("sha256", AUTH_SECRET).update(payload).digest("base64url"));
+  if (provided.length !== expected.length || !crypto.timingSafeEqual(provided, expected)) return null;
+  try {
+    const session = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
+    if (!session.userId || !session.expiresAt || session.expiresAt <= Date.now()) return null;
+    return session;
+  } catch {
+    return null;
+  }
 }
 
 function authToken(req) {
@@ -424,10 +462,20 @@ function authToken(req) {
 
 function getUserFromRequest(req) {
   const token = authToken(req);
-  const session = sessions.get(token);
+  const session = persistentSession(token) || sessions.get(token);
   if (!session) return null;
   const users = readUsers();
-  return users.find(user => user.id === session.userId) || null;
+  const existingUser = users.find(user => user.id === session.userId);
+  if (existingUser) return existingUser;
+  if (!session.user || session.user.id !== session.userId) return null;
+
+  const recoveredUser = {
+    ...session.user,
+    recoveredAt: new Date().toISOString()
+  };
+  users.push(recoveredUser);
+  writeUsers(users);
+  return recoveredUser;
 }
 
 function clientIp(req) {

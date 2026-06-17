@@ -36,6 +36,7 @@ DEEPSEEK_TIMEOUT_MS=8500
 DEEPSEEK_HISTORY_LIMIT=6
 CHAT_LIMIT_PER_DAY=100
 ADMIN_SECRET=你的管理员口令
+AUTH_TOKEN_DAYS=30
 INVITE_CODES_1_DAY=DAY001,DAY002,DAY003
 INVITE_CODES_1_MONTH=MONTH001,MONTH002,MONTH003
 ```
@@ -80,6 +81,8 @@ TENCENT_ASR_ENGINE=16k_zh
 `DEEPSEEK_TIMEOUT_MS` 控制 Pro 单次等待上限，默认 8.5 秒；超过后会切到 `DEEPSEEK_FLASH_MODEL` 快速兜底。Flash 也异常时，才使用本地教学兜底回复。`DEEPSEEK_HISTORY_LIMIT` 控制每次发给模型的最近对话条数，默认 6 条，能减少延迟。
 
 `ADMIN_SECRET` 是管理员生成和校验邀请码时使用的口令。部署后打开 `/admin.html`，输入这个口令，就可以自动生成带签名的稳定随机邀请码。请保持 `ADMIN_SECRET` 不变；如果更换它，之前生成的邀请码会失效。
+
+登录令牌默认有效 30 天，并使用 `ADMIN_SECRET` 签名，所以 Render 休眠、重启或重新部署后仍可自动登录。邀请码只在首次注册时使用；以后只需邮箱和密码。可通过 `AUTH_TOKEN_DAYS` 修改登录保持天数。
 
 `INVITE_CODES_1_DAY` 和 `INVITE_CODES_1_MONTH` 是可选的手工邀请码列表，适合临时预置少量邀请码。多个邀请码用英文逗号隔开。每个邀请码注册成功后会被占用，不能再次注册。
 
