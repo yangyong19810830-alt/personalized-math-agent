@@ -584,9 +584,9 @@ function systemPrompt(profile, messages = []) {
     ? [
         "当前回复模式：讲解模式。",
         "可以讲完整，但要结构化，不要只堆步骤。建议 450-900 个汉字，必须把结尾讲完整，最后用一句话收束。",
-        "默认结构：真正难点；找对象；定单位/标准；搭关系；选择表达方式；关键步骤；易错点；一句话结构总结；1 道变式问题。",
+        "默认结构：真正难点；找对象；定单位/标准；搭关系；选择表达方式；关键步骤；易错点；一句话结构总结；要求学生复述结构。",
         "讲解时，找出对象和对象之间的关系后，要立刻说“我们把这个关系画成结构图来看”。图不是装饰，而是把关系具体化、模型化：对象是点，关系是边，单位/标准和变化量要在图里显出来。",
-        "每个关键算式都要解释它表达的关系。讲完后要求学生用一句话复述，减少答案依赖。"
+        "每个关键算式都要解释它表达的关系。讲完后不要立刻出新题，先要求学生用一句话复述这道题背后的结构，减少答案依赖。"
       ]
     : [
         "当前回复模式：启发模式。",
@@ -601,6 +601,9 @@ function systemPrompt(profile, messages = []) {
     "你是一个面向小学到大学学生的个性化数学学习智能体。",
     "核心教学观：数学学习不是会算，而是把题目世界结构化。",
     "每次优先检查：对象、单位/标准、关系、表达方式、验证迁移。不要只给答案或堆步骤。",
+    "一题完成后的固定节奏：第一步，让学生复述这道题背后的结构，而不是复述步骤；第二步，如果学生复述不出来、说不会、说不知道结构，先用大白话揭示结构；第三步，再出一道同结构练习题。新练习必须更换完整场景，不能只是换数字。",
+    "同结构练习示例：鸡兔同笼不要只换鸡和兔数量，可以换成两轮车和三轮车、普通票和贵宾票、单价不同的两类物品；年龄倍数题可以换成树高、存款、积分等随时间一起变化的场景；周期排列题可以换成站牌、座位、彩旗、节目顺序等场景。",
+    "判断学生是否能复述结构：合格复述应说出对象、单位/标准、关系模型和目标之间如何连接。若只说步骤或只背答案，要温和指出还没有说到结构，并引导补上对象和关系。",
     "启发模式的边界：不直接给最终答案，不一次性讲完整路线；但必须有质量，不能反复追问同一个点。学生连续答对时要整合并推进。",
     "对学生说大白话，不暴露内部理论术语。禁止使用：SDE、纠缠、差异序列、结构显露、显露态、六爪、抓核、抓裂缝、改姓、锻造、投放、本体论、发生链、在 E 中、经 D、成 S。",
     "数学公式用学生可读写法，例如 x <= (a-2)/4、x ≥ -1、3/4 ÷ 1/8。尽量不要输出 \\dfrac、\\leqslant、\\begin{cases} 等 LaTeX 原码。",
@@ -704,13 +707,27 @@ function latestUserText(messages) {
   return deepSeekMessageText(latest);
 }
 
+function historyText(messages, count = 8) {
+  return messages.slice(-count).map(message => deepSeekMessageText(message)).join("\n");
+}
+
+function needsStructureReveal(messages) {
+  const latest = latestUserText(messages);
+  return /不会复述|复述不出来|不知道结构|结构是什么|没看出结构|不懂结构|不会总结|总结不出来|不会迁移|不会说|说不出来|不知道怎么复述/.test(latest);
+}
+
+function structureFollowupLine(messages) {
+  if (!needsStructureReveal(messages)) return "";
+  return "当前学生表示不能复述结构。不要继续追问同一句话；请先揭示这道题背后的结构：对象是什么，单位/标准是什么，关系模型是什么，目标怎样由关系推出。然后出一道同结构练习题，必须完整更换场景，不能只换数字。例：鸡兔同笼可换成两轮车和三轮车。";
+}
+
 function shouldShowLocalDiagram(messages, profile = {}) {
   const text = latestUserText(messages);
-  const historyText = messages.slice(-4).map(message => deepSeekMessageText(message)).join("\n");
+  const recentText = historyText(messages, 4);
   if (/画图|结构图|图解|画出来|关系图|示意图|看图理解/.test(text)) return true;
   if (profile.mode === "讲解模式") return true;
   if (messages.filter(message => message.role === "user").length >= 2 && /不会|不懂|卡住|没思路|不知道|错了|再讲|为什么/.test(text)) return true;
-  return /几何|证明|钟|追及|相遇|工程|行程|函数|参数|分类讨论|数列|导数|圆|三角形|面积|体积|概率/.test(historyText)
+  return /几何|证明|钟|追及|相遇|工程|行程|函数|参数|分类讨论|数列|导数|圆|三角形|面积|体积|概率/.test(recentText)
     && messages.filter(message => message.role === "user").length >= 2;
 }
 
@@ -830,7 +847,20 @@ function buildLocalDiagram(messages, answer = "") {
 
 function fallbackTeachingReply(messages, profile = {}) {
   const text = latestUserText(messages);
+  const allText = historyText(messages, 10);
   const isExplanation = profile?.mode === "讲解模式";
+  if (needsStructureReveal(messages)) {
+    if (/鸡兔|鸡和兔|兔子|头|脚|腿/.test(allText)) {
+      return "这道题背后的结构不是“鸡”和“兔”，而是两类对象共用两个总量：一个总数量，一个按类别不同产生的总量。比如鸡和兔都是“1个头”，但脚数不同：鸡每只2只脚，兔每只4只脚。结构可以说成：总个数固定，总脚数固定，每一类贡献不同，利用差异把两类数量分开。\n\n同结构练习，换一个场景：停车场里一共有28辆车，只有两轮电动车和三轮车两种。数车头一共28个，数车轮一共70个。两轮电动车和三轮车各有多少辆？你先别急着算，先说说这里哪两个总量对应原题的“头”和“脚”。";
+    }
+    if (/年龄|岁|爸爸|妈妈|儿子|女儿|倍/.test(allText)) {
+      return "这道题背后的结构是：两个对象同时随时间增加，但它们之间的倍数关系在不同时间点发生变化。关键不是某个人几岁，而是把某个对象当作单位，看另一个对象是多少份，再用“同时增加同样的量”把两个时间点连起来。\n\n同结构练习，换一个场景：小树和大树今年的高度有倍数关系。大树今年高度是小树的4倍；6年后，两棵树都长高6米，那时大树高度是小树的2倍。问今年两棵树各多高？你先说：这里哪两个对象在同时变化？哪个关系没有直接给出具体数值？";
+    }
+    if (/重复|排列|顺序|周期|彩灯|颜色|循环/.test(allText)) {
+      return "这道题背后的结构是：一组对象按固定顺序反复出现。关键不是一个个数到目标位置，而是先找最小重复组，再用目标位置除以组长，看余数落在哪个位置；统计个数时，再把整组数量和剩余部分分开。\n\n同结构练习，换一个场景：学校运动会入场方阵按“鼓队、旗队、花队、标语队”循环排列。第87个队伍是什么类型？前87个队伍中，旗队一共有多少个？你先说：最小重复组是什么？组长是多少？";
+    }
+    return "这道题背后的结构可以这样说：先找对象，再定单位或标准，然后看对象之间怎样比较、变化或互相约束，最后把这种关系表达成图、表、式或方程。真正要迁移的不是数字，而是“对象—标准—关系—目标”的连接方式。\n\n同结构练习，换一个新场景：某活动有成人票和学生票两种，共卖出42张票，总收入是1260元。成人票每张40元，学生票每张20元。成人票和学生票各卖出多少张？这和原题一样，都是两类对象共享一个总数量，同时每类对象对另一个总量的贡献不同。你先说：这题里的两个总量分别是什么？";
+  }
   if (isExplanation && /钟|时间|秒|分钟|小时/.test(text)) {
     return "这题真正难点不是数钟声，而是数“两个钟声之间的间隔”。从 10 点听到第 4 声，一共有 3 个间隔；相邻整点的间隔规律是 5 秒、6 秒、7 秒……每小时比前一小时多 1 秒。先确定 10 点这 3 个间隔分别是多少，再加起来就是秒表显示的时间。你可以先试着写出这 3 个间隔。";
   }
@@ -897,6 +927,7 @@ async function requestDeepSeek(messages, profile, config, options = {}) {
         content: [
           systemPrompt(profile || {}, messages),
           modelPromptLine(config),
+          structureFollowupLine(messages),
           options.retryHint || ""
         ].filter(Boolean).join("\n")
       },
@@ -950,8 +981,8 @@ async function callFlashFallback(messages, profile, reason = "") {
   const flashConfig = deepSeekFlashConfig(profile);
   return requestDeepSeek(messages, profile, flashConfig, {
     retryHint: isExplanation
-      ? `Pro 响应较慢或为空，已切换快速模型。请输出 260 字以内的结构化讲解，包含难点、对象、单位/标准、关系、第一步。不要 JSON。原因：${reason}`
-      : `Pro 响应较慢或为空，已切换快速模型。请输出 180-260 字的高质量启发：总结学生已完成的点，纠正一个误区，补充必要背景，只推进一个新台阶，最后问一个具体问题。不要最终答案，不要完整路线，不要 JSON。原因：${reason}`,
+      ? `Pro 响应较慢或为空，已切换快速模型。请输出 260 字以内的结构化讲解，包含难点、对象、单位/标准、关系、第一步。若题目已讲完，最后只要求学生复述结构，不要立刻出新题；若学生已说不会复述，则揭示结构并给一道同结构但完全换场景的练习题。不要 JSON。原因：${reason}`
+      : `Pro 响应较慢或为空，已切换快速模型。请输出 180-260 字的高质量启发：总结学生已完成的点，纠正一个误区，补充必要背景，只推进一个新台阶，最后问一个具体问题。若已经完成原题，要让学生复述结构；若学生不会复述，再给同结构换场景练习。不要最终答案，不要完整路线，不要 JSON。原因：${reason}`,
     maxTokens: flashConfig.maxTokens,
     timeoutMs: 3000
   });
