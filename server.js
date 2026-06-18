@@ -604,6 +604,7 @@ function systemPrompt(profile, messages = []) {
     "一题完成后的固定节奏：第一步，让学生复述这道题背后的结构，而不是复述步骤；第二步，如果学生复述不出来、说不会、说不知道结构，先用大白话揭示结构；第三步，再出一道同结构练习题。新练习必须更换完整场景，不能只是换数字。",
     "同结构练习示例：鸡兔同笼不要只换鸡和兔数量，可以换成两轮车和三轮车、普通票和贵宾票、单价不同的两类物品；年龄倍数题可以换成树高、存款、积分等随时间一起变化的场景；周期排列题可以换成站牌、座位、彩旗、节目顺序等场景。",
     "判断学生是否能复述结构：合格复述应说出对象、单位/标准、关系模型和目标之间如何连接。若只说步骤或只背答案，要温和指出还没有说到结构，并引导补上对象和关系。",
+    "如果用户是在请求出题、练习、测试，例如“给我出一道题”“来一道鸡兔同笼题”，这不是学生作答。必须先直接给出一道完整题目，语气自然，不要上来就让用户分析对象、单位/标准、关系。题目后只留一句轻提示，例如“你先试试，卡住了我再提示”。",
     "启发模式的边界：不直接给最终答案，不一次性讲完整路线；但必须有质量，不能反复追问同一个点。学生连续答对时要整合并推进。",
     "对学生说大白话，不暴露内部理论术语。禁止使用：SDE、纠缠、差异序列、结构显露、显露态、六爪、抓核、抓裂缝、改姓、锻造、投放、本体论、发生链、在 E 中、经 D、成 S。",
     "数学公式用学生可读写法，例如 x <= (a-2)/4、x ≥ -1、3/4 ÷ 1/8。尽量不要输出 \\dfrac、\\leqslant、\\begin{cases} 等 LaTeX 原码。",
@@ -714,6 +715,16 @@ function historyText(messages, count = 8) {
 function needsStructureReveal(messages) {
   const latest = latestUserText(messages);
   return /不会复述|复述不出来|不知道结构|结构是什么|没看出结构|不懂结构|不会总结|总结不出来|不会迁移|不会说|说不出来|不知道怎么复述/.test(latest);
+}
+
+function isPracticeRequest(messages) {
+  const latest = latestUserText(messages);
+  return /出\s*(一|1)?\s*道|来\s*(一|1)?\s*道|给我.*题|给.*出.*题|练习题|练一练|测试一下|考考我|生成.*题|安排.*练习/.test(latest);
+}
+
+function practiceRequestLine(messages) {
+  if (!isPracticeRequest(messages)) return "";
+  return "当前用户是在请求出题或练习，不是在回答题目。请先直接给出一道完整题目；不要说“你这一步有价值”“把刚才得到的量放回题目”之类反馈；也不要一开始就要求分析对象、单位/标准、关系。题目后只留一句自然提示：你先试试，卡住了我再提示。";
 }
 
 function structureFollowupLine(messages) {
@@ -849,6 +860,18 @@ function fallbackTeachingReply(messages, profile = {}) {
   const text = latestUserText(messages);
   const allText = historyText(messages, 10);
   const isExplanation = profile?.mode === "讲解模式";
+  if (isPracticeRequest(messages)) {
+    if (/鸡兔|鸡兔同笼|头|脚|腿/.test(text)) {
+      return "给你一道鸡兔同笼题：\n\n一个笼子里有鸡和兔一共 26 只。数头一共有 26 个，数脚一共有 74 只。问：鸡有多少只？兔有多少只？\n\n你先试着做，卡住了我再一点点提示。";
+    }
+    if (/年龄|岁|倍/.test(text)) {
+      return "给你一道年龄关系题：\n\n今年爸爸的年龄是小明的 4 倍。10 年后，爸爸的年龄是小明的 2 倍。问：今年爸爸和小明各多少岁？\n\n你先试着做，卡住了我再提示。";
+    }
+    if (/周期|排列|顺序|彩灯|颜色|循环/.test(text)) {
+      return "给你一道周期排列题：\n\n一串彩旗按“红、黄、蓝、绿”这样的顺序不断重复排列。请问第 67 面彩旗是什么颜色？前 67 面彩旗中，黄色彩旗一共有多少面？\n\n你先试着做，卡住了我再提示。";
+    }
+    return "给你一道练习题：\n\n停车场里有两轮电动车和三轮车一共 28 辆。数车头一共有 28 个，数车轮一共有 70 个。问：两轮电动车和三轮车各有多少辆？\n\n你先试着做，卡住了我再提示。";
+  }
   if (needsStructureReveal(messages)) {
     if (/鸡兔|鸡和兔|兔子|头|脚|腿/.test(allText)) {
       return "这道题背后的结构不是“鸡”和“兔”，而是两类对象共用两个总量：一个总数量，一个按类别不同产生的总量。比如鸡和兔都是“1个头”，但脚数不同：鸡每只2只脚，兔每只4只脚。结构可以说成：总个数固定，总脚数固定，每一类贡献不同，利用差异把两类数量分开。\n\n同结构练习，换一个场景：停车场里一共有28辆车，只有两轮电动车和三轮车两种。数车头一共28个，数车轮一共70个。两轮电动车和三轮车各有多少辆？你先别急着算，先说说这里哪两个总量对应原题的“头”和“脚”。";
@@ -873,6 +896,9 @@ function fallbackTeachingReply(messages, profile = {}) {
 function nextHeuristicQuestion(messages) {
   const userCount = messages.filter(message => message.role === "user").length;
   const latest = latestUserText(messages);
+  if (isPracticeRequest(messages)) {
+    return fallbackTeachingReply(messages, { mode: "启发模式" });
+  }
   if (userCount >= 4) {
     return "我们把前面合起来看：你已经找到了一个关键对象，也开始说明它和题目关系了。现在不要停在原地，请往前推进一个台阶：用一句话说清“左边这个表达式表示谁，右边这个表达式表示谁”，然后判断两边为什么应该相等或对应。";
   }
@@ -927,6 +953,7 @@ async function requestDeepSeek(messages, profile, config, options = {}) {
         content: [
           systemPrompt(profile || {}, messages),
           modelPromptLine(config),
+          practiceRequestLine(messages),
           structureFollowupLine(messages),
           options.retryHint || ""
         ].filter(Boolean).join("\n")
@@ -981,8 +1008,8 @@ async function callFlashFallback(messages, profile, reason = "") {
   const flashConfig = deepSeekFlashConfig(profile);
   return requestDeepSeek(messages, profile, flashConfig, {
     retryHint: isExplanation
-      ? `Pro 响应较慢或为空，已切换快速模型。请输出 260 字以内的结构化讲解，包含难点、对象、单位/标准、关系、第一步。若题目已讲完，最后只要求学生复述结构，不要立刻出新题；若学生已说不会复述，则揭示结构并给一道同结构但完全换场景的练习题。不要 JSON。原因：${reason}`
-      : `Pro 响应较慢或为空，已切换快速模型。请输出 180-260 字的高质量启发：总结学生已完成的点，纠正一个误区，补充必要背景，只推进一个新台阶，最后问一个具体问题。若已经完成原题，要让学生复述结构；若学生不会复述，再给同结构换场景练习。不要最终答案，不要完整路线，不要 JSON。原因：${reason}`,
+      ? `Pro 响应较慢或为空，已切换快速模型。若用户是在请求出题，请直接给一道完整题目，不要先分析。否则请输出 260 字以内的结构化讲解，包含难点、对象、单位/标准、关系、第一步。若题目已讲完，最后只要求学生复述结构，不要立刻出新题；若学生已说不会复述，则揭示结构并给一道同结构但完全换场景的练习题。不要 JSON。原因：${reason}`
+      : `Pro 响应较慢或为空，已切换快速模型。若用户是在请求出题，请直接给一道完整题目，不要先分析。否则请输出 180-260 字的高质量启发：总结学生已完成的点，纠正一个误区，补充必要背景，只推进一个新台阶，最后问一个具体问题。若已经完成原题，要让学生复述结构；若学生不会复述，再给同结构换场景练习。不要最终答案，不要完整路线，不要 JSON。原因：${reason}`,
     maxTokens: flashConfig.maxTokens,
     timeoutMs: 3000
   });
