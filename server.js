@@ -708,8 +708,21 @@ function latestUserText(messages) {
   return deepSeekMessageText(latest);
 }
 
+function latestAssistantText(messages) {
+  const latest = [...messages].reverse().find(message => message.role === "assistant");
+  return deepSeekMessageText(latest);
+}
+
 function historyText(messages, count = 8) {
   return messages.slice(-count).map(message => deepSeekMessageText(message)).join("\n");
+}
+
+function isNewProblemInput(text) {
+  const value = String(text || "").trim();
+  if (value.length < 20) return false;
+  if (isPracticeRequest([{ role: "user", content: value }])) return false;
+  return /问|求|多少|几|如果|已知|证明|计算|一共|共有|需要|至少|最多|最少/.test(value)
+    && /[0-9一二三四五六七八九十百千万]/.test(value);
 }
 
 function needsStructureReveal(messages) {
@@ -725,6 +738,30 @@ function isPracticeRequest(messages) {
 function practiceRequestLine(messages) {
   if (!isPracticeRequest(messages)) return "";
   return "当前用户是在请求出题或练习，不是在回答题目。请先直接给出一道完整题目；不要说“你这一步有价值”“把刚才得到的量放回题目”之类反馈；也不要一开始就要求分析对象、单位/标准、关系。题目后只留一句自然提示：你先试试，卡住了我再提示。";
+}
+
+function activeProblemText(messages) {
+  const latest = latestUserText(messages);
+  if (!latest || isPracticeRequest(messages) || isNewProblemInput(latest)) return "";
+  const assistant = [...messages].reverse()
+    .find(message => message.role === "assistant" && /问|多少|几|？|\?/.test(deepSeekMessageText(message)));
+  const text = deepSeekMessageText(assistant);
+  if (!text || /你好|当前试用|新的对话已开启/.test(text)) return "";
+  return text.slice(0, 1200);
+}
+
+function activeProblemLine(messages) {
+  const problem = activeProblemText(messages);
+  if (!problem) return "";
+  const latest = latestUserText(messages);
+  const correction = /记错|原题不是|不是.*原题|题目错了|哪里有|哪有|看清原题|不是这个题/.test(latest)
+    ? "用户正在指出你记错了原题，必须先承认并重新对齐原题。"
+    : "";
+  return [
+    correction,
+    "当前正在解答你上一轮给出的原题。必须严格以这段原题为准，不能改数字、不能改对象、不能把相似题型的数字混进来。如果用户只回答一个数字或一句短话，也要回到这道原题判断。",
+    `原题全文：${problem}`
+  ].filter(Boolean).join("\n");
 }
 
 function structureFollowupLine(messages) {
@@ -860,6 +897,12 @@ function fallbackTeachingReply(messages, profile = {}) {
   const text = latestUserText(messages);
   const allText = historyText(messages, 10);
   const isExplanation = profile?.mode === "讲解模式";
+  if (/记错|原题不是|不是.*原题|题目错了|哪里有|哪有|看清原题|不是这个题/.test(text)) {
+    const problem = activeProblemText(messages);
+    if (problem) {
+      return `你说得对，我刚才把原题记混了。我们重新按原题来：\n\n${problem}\n\n接下来所有判断都以这道题为准，不再改数字。你刚才的回答我会放回这道原题里检查：它表示的是哪个量？和题目里的哪个条件对应？`;
+    }
+  }
   if (isPracticeRequest(messages)) {
     if (/鸡兔|鸡兔同笼|头|脚|腿/.test(text)) {
       return "给你一道鸡兔同笼题：\n\n一个笼子里有鸡和兔一共 26 只。数头一共有 26 个，数脚一共有 74 只。问：鸡有多少只？兔有多少只？\n\n你先试着做，卡住了我再一点点提示。";
@@ -954,6 +997,7 @@ async function requestDeepSeek(messages, profile, config, options = {}) {
           systemPrompt(profile || {}, messages),
           modelPromptLine(config),
           practiceRequestLine(messages),
+          activeProblemLine(messages),
           structureFollowupLine(messages),
           options.retryHint || ""
         ].filter(Boolean).join("\n")
