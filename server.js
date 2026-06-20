@@ -19,6 +19,7 @@ const VISION_API_KEY = process.env.VISION_API_KEY || "";
 const VISION_PROVIDER = (process.env.VISION_PROVIDER || "zhipu").toLowerCase();
 const VISION_BASE_URL = (process.env.VISION_BASE_URL || "https://open.bigmodel.cn/api/paas/v4").replace(/\/$/, "");
 const VISION_MODEL = process.env.VISION_MODEL || "glm-4v-plus-0111";
+const VISION_MAX_TOKENS = Number(process.env.VISION_MAX_TOKENS || 1800);
 const TTS_PROVIDER = (process.env.TTS_PROVIDER || "zhipu").toLowerCase();
 const TTS_API_KEY = process.env.TTS_API_KEY || process.env.ZHIPU_API_KEY || VISION_API_KEY || "";
 const TTS_BASE_URL = (process.env.TTS_BASE_URL || "https://open.bigmodel.cn/api/paas/v4").replace(/\/$/, "");
@@ -609,6 +610,7 @@ function systemPrompt(profile, messages = []) {
     "对学生说大白话，不暴露内部理论术语。禁止使用：SDE、纠缠、差异序列、结构显露、显露态、六爪、抓核、抓裂缝、改姓、锻造、投放、本体论、发生链、在 E 中、经 D、成 S。",
     "数学公式用学生可读写法，例如 x <= (a-2)/4、x ≥ -1、3/4 ÷ 1/8。尽量不要输出 \\dfrac、\\leqslant、\\begin{cases} 等 LaTeX 原码。",
     "不要机械问“已知什么、求什么”。要帮助学生看见对象、标准、关系，以及适合用图、表、式还是方程表达。",
+    "如果题目来自图片识别，尤其是几何题，且识别结果里有“看不清/不确定/未标注”，不要把不确定关系当成已知条件。先向学生核对关键图形关系，例如点名、平行、垂直、相等、角度、长度、切点、中点等，再继续启发或讲解。",
     `学生阶段：${profile.stage || "小学"}。`,
     `回复模式：${mode}。`,
     `学习目标：${profile.goal || "补齐薄弱知识"}。`,
@@ -1178,16 +1180,25 @@ async function callVision(image) {
     body: JSON.stringify({
       model: VISION_MODEL,
       temperature: 0,
-      max_tokens: 1200,
+      max_tokens: VISION_MAX_TOKENS,
       messages: [
         {
           role: "system",
-          content: "你是数学题目 OCR 助手。只负责把图片中的题目准确转写成中文数学文本。保留题号、条件、图形标注、公式和选项。不要解题，不要解释。公式尽量转成学生可读的普通文本，例如 x >= -1、(a-2)/4。"
+          content: [
+            "你是数学题目图片识别助手，尤其要谨慎处理几何图。",
+            "只负责识别和转写，不要解题，不要推理答案。",
+            "必须区分“看见的图形标注”和“你推测的关系”。禁止把未标注的垂直、平行、相等、角平分、中点、圆心、切线、全等、相似等关系当成已知。",
+            "如果图中某个点名、角标、线段标注、数字或符号看不清，写“看不清/不确定”，不要猜。",
+            "几何题必须按固定格式输出：题目文字；图形对象；图中明确标注的关系；需要求证/求解；不确定信息。",
+            "图形对象要尽量列出点、线段、射线、直线、圆、三角形、四边形及它们的连接关系。",
+            "明确标注的关系包括：平行、垂直、相等、角度、长度、切点、中点、圆心、共线、共圆、交点等。只写图中能看见的。",
+            "公式尽量转成学生可读的普通文本，例如 x >= -1、(a-2)/4，不要输出复杂 LaTeX 原码。"
+          ].join("\n")
         },
         {
           role: "user",
           content: [
-            { type: "text", text: "请识别这张图片中的数学题目，完整转写。若有几何图，请描述图中点、线、角、相等/平行/垂直等标注。" },
+            { type: "text", text: "请完整识别这张数学题图片。如果是几何题，先读文字，再逐项描述图形：有哪些点和图形，哪些关系是明确标注的，哪些地方看不清。不要补充图片中没有标注的条件。" },
             { type: "image_url", image_url: { url: imageForProvider } }
           ]
         }
@@ -1638,14 +1649,14 @@ async function handleVision(req, res) {
       sendJson(res, 403, { error: "试用期已经结束。请联系老师或管理员获取新的试用资格。" });
       return;
     }
-    const body = JSON.parse(await readBody(req, 8 * 1024 * 1024) || "{}");
+    const body = JSON.parse(await readBody(req, 12 * 1024 * 1024) || "{}");
     const image = String(body.image || "");
     if (!image.startsWith("data:image/")) {
       sendJson(res, 400, { error: "请上传有效的题目图片" });
       return;
     }
-    if (image.length > 6 * 1024 * 1024) {
-      sendJson(res, 400, { error: "图片太大了，请上传更小或压缩后的图片" });
+    if (image.length > 10 * 1024 * 1024) {
+      sendJson(res, 400, { error: "图片太大了，请上传更小或压缩后的图片。几何题建议保留清晰点名和角标。" });
       return;
     }
     const text = await callVision(image);
