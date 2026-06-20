@@ -815,6 +815,30 @@ function buildLocalDiagram(messages, answer = "") {
   const text = latestUserText(messages).replace(/\s+/g, " ");
   const context = `${text}\n${answer}`.replace(/\s+/g, " ");
 
+  if (/几何|证明|圆|⊙|切线|弦|半径|直径|圆心|三角形|四边形|角|∠|平行|垂直|相似|全等|共线|共圆|AB|AC|AD|BD|BC/.test(context)) {
+    return {
+      title: "几何证明结构图",
+      nodes: [
+        { id: "n1", label: "图形对象", type: "given" },
+        { id: "n2", label: "明确已知关系", type: "given" },
+        { id: "n3", label: "关键桥梁", type: "relation" },
+        { id: "n4", label: "角/边对应", type: "step" },
+        { id: "n5", label: "相似/全等/定理", type: "relation" },
+        { id: "n6", label: "目标结论", type: "goal" },
+        { id: "n7", label: "核对未标注条件", type: "check" }
+      ],
+      edges: [
+        { from: "n1", to: "n2", label: "读图定位" },
+        { from: "n2", to: "n3", label: "找可用定理" },
+        { from: "n3", to: "n4", label: "建立对应" },
+        { from: "n4", to: "n5", label: "推出关系" },
+        { from: "n5", to: "n6", label: "得到结论" },
+        { from: "n2", to: "n7", label: "防止误读" }
+      ],
+      note: "几何图要先核对图中明确标注的点、线、角关系，再用定理把目标结论接出来。"
+    };
+  }
+
   if (/爸爸|妈妈|儿子|女儿|年龄|岁|倍/.test(context)) {
     return {
       title: "年龄关系结构图",
@@ -838,7 +862,7 @@ function buildLocalDiagram(messages, answer = "") {
     };
   }
 
-  if (/重复|排列|顺序|第\s*\d+|周期|颜色|彩灯|循环/.test(context)) {
+  if (/重复|排列|顺序|周期|颜色|彩灯|循环/.test(text) || /第\s*\d+\s*(个|项|盏|面|位|次|组)/.test(text)) {
     return {
       title: "周期排列结构图",
       nodes: [
