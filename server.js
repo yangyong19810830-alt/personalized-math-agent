@@ -1258,6 +1258,7 @@ async function callVision(image) {
   const imageForProvider = VISION_PROVIDER === "zhipu"
     ? image.replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/, "")
     : image;
+  const visionTemperature = VISION_PROVIDER === "kimi" ? 1 : 0;
 
   const response = await fetch(`${visionBaseUrl}/chat/completions`, {
     method: "POST",
@@ -1267,7 +1268,7 @@ async function callVision(image) {
     },
     body: JSON.stringify({
       model: visionModel,
-      temperature: 0,
+      temperature: visionTemperature,
       max_tokens: VISION_MAX_TOKENS,
       messages: [
         {
