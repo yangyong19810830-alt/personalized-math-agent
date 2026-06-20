@@ -458,25 +458,40 @@ function persistentSession(token) {
 function authToken(req) {
   const header = req.headers.authorization || "";
   if (header.startsWith("Bearer ")) return header.slice(7);
+  const cookie = String(req.headers.cookie || "");
+  const match = cookie.match(/(?:^|;\s*)math_agent_token=([^;]+)/);
+  if (match) return decodeURIComponent(match[1]);
   return "";
 }
 
-function getUserFromRequest(req) {
-  const token = authToken(req);
-  const session = persistentSession(token) || sessions.get(token);
-  if (!session) return null;
-  const users = readUsers();
-  const existingUser = users.find(user => user.id === session.userId);
-  if (existingUser) return existingUser;
-  if (!session.user || session.user.id !== session.userId) return null;
+function authTokenCandidates(req) {
+  const values = [];
+  const header = req.headers.authorization || "";
+  if (header.startsWith("Bearer ")) values.push(header.slice(7));
+  const cookie = String(req.headers.cookie || "");
+  const match = cookie.match(/(?:^|;\s*)math_agent_token=([^;]+)/);
+  if (match) values.push(decodeURIComponent(match[1]));
+  return [...new Set(values.filter(Boolean))];
+}
 
-  const recoveredUser = {
-    ...session.user,
-    recoveredAt: new Date().toISOString()
-  };
-  users.push(recoveredUser);
-  writeUsers(users);
-  return recoveredUser;
+function getUserFromRequest(req) {
+  for (const token of authTokenCandidates(req)) {
+    const session = persistentSession(token) || sessions.get(token);
+    if (!session) continue;
+    const users = readUsers();
+    const existingUser = users.find(user => user.id === session.userId);
+    if (existingUser) return existingUser;
+    if (!session.user || session.user.id !== session.userId) continue;
+
+    const recoveredUser = {
+      ...session.user,
+      recoveredAt: new Date().toISOString()
+    };
+    users.push(recoveredUser);
+    writeUsers(users);
+    return recoveredUser;
+  }
+  return null;
 }
 
 function clientIp(req) {
@@ -505,12 +520,27 @@ function consumeQuota(req, identity) {
   return true;
 }
 
-function sendJson(res, status, body) {
+function authCookie(token) {
+  return [
+    `math_agent_token=${encodeURIComponent(token)}`,
+    "Path=/",
+    `Max-Age=${Math.round(AUTH_TOKEN_DAYS * 24 * 60 * 60)}`,
+    "SameSite=Lax",
+    "HttpOnly"
+  ].join("; ");
+}
+
+function clearAuthCookie() {
+  return "math_agent_token=; Path=/; Max-Age=0; SameSite=Lax; HttpOnly";
+}
+
+function sendJson(res, status, body, extraHeaders = {}) {
   const data = Buffer.from(JSON.stringify(body), "utf8");
   res.writeHead(status, {
     "Content-Type": "application/json; charset=utf-8",
     "Content-Length": data.length,
-    "Cache-Control": "no-store"
+    "Cache-Control": "no-store",
+    ...extraHeaders
   });
   res.end(data);
 }
@@ -1488,7 +1518,12 @@ async function handleRegister(req, res) {
     }
 
     const token = createSession(user);
-    sendJson(res, 200, { token, user: publicUser(user), limit: DAILY_LIMIT, remaining: remainingFor(req, `user:${user.id}`) });
+    sendJson(
+      res,
+      200,
+      { token, user: publicUser(user), limit: DAILY_LIMIT, remaining: remainingFor(req, `user:${user.id}`) },
+      { "Set-Cookie": authCookie(token) }
+    );
   } catch (error) {
     sendJson(res, 500, { error: error.message || "注册失败" });
   }
@@ -1507,7 +1542,12 @@ async function handleLogin(req, res) {
     }
 
     const token = createSession(user);
-    sendJson(res, 200, { token, user: publicUser(user), limit: DAILY_LIMIT, remaining: remainingFor(req, `user:${user.id}`) });
+    sendJson(
+      res,
+      200,
+      { token, user: publicUser(user), limit: DAILY_LIMIT, remaining: remainingFor(req, `user:${user.id}`) },
+      { "Set-Cookie": authCookie(token) }
+    );
   } catch (error) {
     sendJson(res, 500, { error: error.message || "登录失败" });
   }
@@ -1525,7 +1565,7 @@ async function handleMe(req, res) {
 async function handleLogout(req, res) {
   const token = authToken(req);
   if (token) sessions.delete(token);
-  sendJson(res, 200, { ok: true });
+  sendJson(res, 200, { ok: true }, { "Set-Cookie": clearAuthCookie() });
 }
 
 async function handleListConversations(req, res) {
