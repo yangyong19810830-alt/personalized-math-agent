@@ -572,6 +572,8 @@
     let listening = false;
     let cloudSttEnabled = null;
     let voiceRecording = null;
+    let voiceBaseText = "";
+    let voiceLiveText = "";
 
     function profile() {
       return {
@@ -726,6 +728,15 @@
       box.focus();
     }
 
+    function setQuestionDraft(text) {
+      const box = document.querySelector("#question");
+      const draft = String(text || "").trim();
+      box.value = voiceBaseText
+        ? (draft ? `${voiceBaseText}\n${draft}` : voiceBaseText)
+        : draft;
+      box.focus();
+    }
+
     function mergeFloat32Chunks(chunks) {
       const totalLength = chunks.reduce((sum, item) => sum + item.length, 0);
       const result = new Float32Array(totalLength);
@@ -820,47 +831,52 @@
     }
 
     async function startVoiceInput() {
+      if (listening && recognition) {
+        recognition.stop();
+        return;
+      }
       if (voiceRecording) {
         await stopCloudVoiceInput();
         return;
       }
-      if (listening && recognition) {
-        recognition.stop();
+      if (SpeechRecognition) {
+        await startBrowserSpeechInput(await hasCloudStt());
         return;
       }
       if (await hasCloudStt()) {
         await startCloudVoiceInput();
         return;
       }
-      addMessage("云端语音识别还没配置，先尝试 Chrome 自带语音。如果这里也失败，就需要管理员在 Render 里配置腾讯云语音识别密钥。", "error");
-      startBrowserSpeechInput();
+      addMessage("当前浏览器没有可用的实时语音输入，云端语音识别也还没配置。可以先用手机/电脑输入法自带的麦克风。", "error");
     }
 
-    async function startCloudVoiceInput() {
+    async function startCloudCapture() {
       if (!navigator.mediaDevices?.getUserMedia) {
-        addMessage("当前浏览器不能直接录音，请换 Chrome/Edge，或使用手机系统键盘自带的麦克风输入。", "error");
-        return;
+        throw new Error("当前浏览器不能直接录音，请换 Chrome/Edge，或使用手机系统键盘自带的麦克风输入。");
       }
       const AudioContextClass = window.AudioContext || window.webkitAudioContext;
       if (!AudioContextClass) {
-        addMessage("当前浏览器不支持网页录音，请换 Chrome/Edge 再试。", "error");
-        return;
+        throw new Error("当前浏览器不支持网页录音，请换 Chrome/Edge 再试。");
       }
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+      });
+      const audioContext = new AudioContextClass();
+      const source = audioContext.createMediaStreamSource(stream);
+      const processor = audioContext.createScriptProcessor(4096, 1, 1);
+      const chunks = [];
+      processor.onaudioprocess = event => {
+        chunks.push(new Float32Array(event.inputBuffer.getChannelData(0)));
+      };
+      source.connect(processor);
+      processor.connect(audioContext.destination);
+      return { stream, audioContext, source, processor, chunks, sampleRate: audioContext.sampleRate };
+    }
+
+    async function startCloudVoiceInput() {
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
-        });
-        const audioContext = new AudioContextClass();
-        const source = audioContext.createMediaStreamSource(stream);
-        const processor = audioContext.createScriptProcessor(4096, 1, 1);
-        const chunks = [];
-        processor.onaudioprocess = event => {
-          chunks.push(new Float32Array(event.inputBuffer.getChannelData(0)));
-        };
-        source.connect(processor);
-        processor.connect(audioContext.destination);
-        voiceRecording = { stream, audioContext, source, processor, chunks, sampleRate: audioContext.sampleRate };
-        voiceRecording.timer = window.setTimeout(() => stopCloudVoiceInput(), 15000);
+        voiceRecording = await startCloudCapture();
+        voiceRecording.timer = window.setTimeout(() => stopCloudVoiceInput(), 20000);
         setListening(true);
         document.querySelector("#question").placeholder = "正在录音，讲完后再点一次“停止录音”。";
       } catch (error) {
@@ -894,15 +910,25 @@
         if (!res.ok) throw new Error(data.error || "语音识别失败");
         const text = String(data.text || "").trim();
         if (!text) throw new Error("没有识别到清楚的语音");
-        appendQuestionText(text);
+        if (voiceBaseText || voiceLiveText) {
+          setQuestionDraft(text);
+        } else {
+          appendQuestionText(text);
+        }
       } catch (error) {
-        addMessage(error.message || "语音识别失败，请再试一次。", "error");
+        if (voiceLiveText) {
+          addMessage("云端最终识别失败，已保留输入框里的实时识别文字，你可以直接修改后发送。", "error");
+        } else {
+          addMessage(error.message || "语音识别失败，请再试一次。", "error");
+        }
       } finally {
+        voiceBaseText = "";
+        voiceLiveText = "";
         document.querySelector("#question").placeholder = "输入题目，或直接 Ctrl+V 粘贴题目截图。";
       }
     }
 
-    function startBrowserSpeechInput() {
+    async function startBrowserSpeechInput(useCloudFinal = false) {
       if (!SpeechRecognition) {
         addMessage("当前浏览器没有可用的自带语音输入。建议先用手机/电脑输入法自带的麦克风，或让管理员配置云端语音识别。", "error");
         return;
@@ -915,35 +941,62 @@
       recognition = new SpeechRecognition();
       recognition.lang = "zh-CN";
       recognition.interimResults = true;
-      recognition.continuous = false;
+      recognition.continuous = true;
 
       let finalText = "";
-      recognition.onstart = () => setListening(true);
+      voiceBaseText = document.querySelector("#question").value.trim();
+      voiceLiveText = "";
+      if (useCloudFinal) {
+        startCloudCapture()
+          .then(recording => {
+            voiceRecording = recording;
+            voiceRecording.timer = window.setTimeout(() => recognition?.stop(), 20000);
+          })
+          .catch(() => {
+            voiceRecording = null;
+          });
+      }
+      recognition.onstart = () => {
+        setListening(true);
+        document.querySelector("#question").placeholder = "正在听，你说的话会实时显示在这里。";
+      };
       recognition.onresult = event => {
         let interimText = "";
         for (let index = event.resultIndex; index < event.results.length; index += 1) {
           const transcript = event.results[index][0].transcript.trim();
           if (event.results[index].isFinal) {
-            finalText += transcript;
+            finalText = `${finalText}${transcript}`;
           } else {
-            interimText += transcript;
+            interimText = `${interimText}${transcript}`;
           }
         }
-        const preview = finalText || interimText;
+        const preview = `${finalText}${interimText}`.trim();
         if (preview) {
-          document.querySelector("#question").placeholder = `正在听：${preview}`;
+          voiceLiveText = preview;
+          setQuestionDraft(preview);
         }
       };
       recognition.onerror = event => {
         setListening(false);
         document.querySelector("#question").placeholder = "输入题目，或直接 Ctrl+V 粘贴题目截图。";
-        addMessage(explainBrowserSpeechError(event.error), "error");
+        if (voiceRecording) {
+          stopCloudVoiceInput();
+        } else {
+          addMessage(explainBrowserSpeechError(event.error), "error");
+        }
       };
       recognition.onend = () => {
         setListening(false);
+        recognition = null;
+        const text = (finalText || voiceLiveText).trim();
+        if (voiceRecording) {
+          stopCloudVoiceInput();
+          return;
+        }
+        if (text) setQuestionDraft(text);
+        voiceBaseText = "";
+        voiceLiveText = "";
         document.querySelector("#question").placeholder = "输入题目，或直接 Ctrl+V 粘贴题目截图。";
-        const text = finalText.trim();
-        if (text) appendQuestionText(text);
       };
       try {
         recognition.start();
