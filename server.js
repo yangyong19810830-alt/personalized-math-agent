@@ -20,9 +20,11 @@ const VISION_PROVIDER = (process.env.VISION_PROVIDER || "zhipu").toLowerCase();
 const VISION_BASE_URL = (process.env.VISION_BASE_URL || "https://open.bigmodel.cn/api/paas/v4").replace(/\/$/, "");
 const VISION_MODEL = process.env.VISION_MODEL || "glm-4v-plus-0111";
 const VISION_MAX_TOKENS = Number(process.env.VISION_MAX_TOKENS || 1800);
+const VISION_TIMEOUT_MS = Number(process.env.VISION_TIMEOUT_MS || 15000);
 const KIMI_API_KEY = process.env.KIMI_API_KEY || process.env.MOONSHOT_API_KEY || "";
 const KIMI_BASE_URL = (process.env.KIMI_BASE_URL || "https://api.moonshot.cn/v1").replace(/\/$/, "");
 const KIMI_VISION_MODEL = process.env.KIMI_VISION_MODEL || process.env.KIMI_MODEL || "kimi-k2.6";
+const KIMI_VISION_TIMEOUT_MS = Number(process.env.KIMI_VISION_TIMEOUT_MS || 10000);
 const TTS_PROVIDER = (process.env.TTS_PROVIDER || "zhipu").toLowerCase();
 const TTS_API_KEY = process.env.TTS_API_KEY || process.env.ZHIPU_API_KEY || VISION_API_KEY || "";
 const TTS_BASE_URL = (process.env.TTS_BASE_URL || "https://open.bigmodel.cn/api/paas/v4").replace(/\/$/, "");
@@ -1245,30 +1247,67 @@ async function callDeepSeek(messages, profile) {
   };
 }
 
-async function callVision(image) {
-  const visionApiKey = VISION_PROVIDER === "kimi" ? (KIMI_API_KEY || VISION_API_KEY) : VISION_API_KEY;
-  const visionBaseUrl = VISION_PROVIDER === "kimi" ? KIMI_BASE_URL : VISION_BASE_URL;
-  const visionModel = VISION_PROVIDER === "kimi" ? KIMI_VISION_MODEL : VISION_MODEL;
-  if (!visionApiKey) {
-    throw new Error(VISION_PROVIDER === "kimi"
-      ? "当前网站还没有配置 KIMI_API_KEY，暂时不能使用 Kimi 图片识别。"
-      : "当前网站还没有配置图片识别模型。请先手动输入题目文字，或联系管理员配置 VISION_API_KEY。");
+function visionProviderConfig(provider) {
+  if (provider === "kimi") {
+    return {
+      provider,
+      apiKey: KIMI_API_KEY || (VISION_PROVIDER === "kimi" ? VISION_API_KEY : ""),
+      baseUrl: KIMI_BASE_URL,
+      model: KIMI_VISION_MODEL,
+      temperature: 1,
+      timeoutMs: KIMI_VISION_TIMEOUT_MS,
+      useBareBase64: false
+    };
+  }
+  return {
+    provider: "zhipu",
+    apiKey: VISION_API_KEY,
+    baseUrl: VISION_BASE_URL,
+    model: VISION_MODEL,
+    temperature: 0,
+    timeoutMs: VISION_TIMEOUT_MS,
+    useBareBase64: true
+  };
+}
+
+function extractVisionText(data) {
+  const message = data?.choices?.[0]?.message;
+  const content = message?.content;
+  if (typeof content === "string") return content.trim();
+  if (Array.isArray(content)) {
+    return content
+      .map(item => typeof item === "string" ? item : item?.text || item?.content || "")
+      .join("")
+      .trim();
+  }
+  return deepSeekMessageText(message);
+}
+
+async function callVisionWithProvider(image, provider) {
+  const config = visionProviderConfig(provider);
+  if (!config.apiKey) {
+    throw new Error(provider === "kimi"
+      ? "还没有配置 KIMI_API_KEY"
+      : "还没有配置 VISION_API_KEY");
   }
 
-  const imageForProvider = VISION_PROVIDER === "zhipu"
+  const imageForProvider = config.useBareBase64
     ? image.replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/, "")
     : image;
-  const visionTemperature = VISION_PROVIDER === "kimi" ? 1 : 0;
 
-  const response = await fetch(`${visionBaseUrl}/chat/completions`, {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), config.timeoutMs);
+  let response;
+  try {
+    response = await fetch(`${config.baseUrl}/chat/completions`, {
     method: "POST",
     headers: {
-      "Authorization": `Bearer ${visionApiKey}`,
+      "Authorization": `Bearer ${config.apiKey}`,
       "Content-Type": "application/json"
     },
     body: JSON.stringify({
-      model: visionModel,
-      temperature: visionTemperature,
+      model: config.model,
+      temperature: config.temperature,
       max_tokens: VISION_MAX_TOKENS,
       messages: [
         {
@@ -1292,16 +1331,46 @@ async function callVision(image) {
           ]
         }
       ]
-    })
-  });
+    }),
+    signal: controller.signal
+    });
+  } catch (error) {
+    if (error.name === "AbortError") {
+      throw new Error(`${provider === "kimi" ? "Kimi" : "智谱"}图片识别超时`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
 
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
     throw new Error(data.error?.message || data.message || `图片识别 API 错误：${response.status}`);
   }
-  const text = (data.choices?.[0]?.message?.content || "").trim();
-  if (!text) throw new Error("图片识别结果为空，请换一张更清晰的图片");
+  const text = extractVisionText(data);
+  if (!text) throw new Error(`${provider === "kimi" ? "Kimi" : "智谱"}图片识别结果为空`);
   return text;
+}
+
+async function callVision(image) {
+  const providers = VISION_PROVIDER === "kimi"
+    ? ["kimi", ...(VISION_API_KEY ? ["zhipu"] : [])]
+    : ["zhipu"];
+  let lastError = null;
+
+  for (const provider of providers) {
+    try {
+      return await callVisionWithProvider(image, provider);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  const message = lastError?.message || "";
+  if (/结果为空/.test(message)) {
+    throw new Error("图片识别结果为空。Kimi 未返回可用文字；可以换更清晰的图，或在 Render 同时保留智谱 VISION_API_KEY 作为快速兜底。");
+  }
+  throw new Error(message || "图片识别失败");
 }
 
 async function callTts(text) {

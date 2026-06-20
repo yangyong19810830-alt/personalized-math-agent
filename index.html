@@ -1333,7 +1333,7 @@
         addMessage("请先上传一张题目图片。", "error");
         return false;
       }
-      const loading = addMessage("正在识别题目图片...");
+      const loading = addMessage("正在识别题目图片，复杂几何图可能需要几秒钟...");
       try {
         const res = await fetch("/api/vision", {
           method: "POST",
