@@ -20,6 +20,9 @@ const VISION_PROVIDER = (process.env.VISION_PROVIDER || "zhipu").toLowerCase();
 const VISION_BASE_URL = (process.env.VISION_BASE_URL || "https://open.bigmodel.cn/api/paas/v4").replace(/\/$/, "");
 const VISION_MODEL = process.env.VISION_MODEL || "glm-4v-plus-0111";
 const VISION_MAX_TOKENS = Number(process.env.VISION_MAX_TOKENS || 1800);
+const KIMI_API_KEY = process.env.KIMI_API_KEY || process.env.MOONSHOT_API_KEY || "";
+const KIMI_BASE_URL = (process.env.KIMI_BASE_URL || "https://api.moonshot.cn/v1").replace(/\/$/, "");
+const KIMI_VISION_MODEL = process.env.KIMI_VISION_MODEL || process.env.KIMI_MODEL || "kimi-k2.6";
 const TTS_PROVIDER = (process.env.TTS_PROVIDER || "zhipu").toLowerCase();
 const TTS_API_KEY = process.env.TTS_API_KEY || process.env.ZHIPU_API_KEY || VISION_API_KEY || "";
 const TTS_BASE_URL = (process.env.TTS_BASE_URL || "https://open.bigmodel.cn/api/paas/v4").replace(/\/$/, "");
@@ -636,6 +639,7 @@ function systemPrompt(profile, messages = []) {
     "同结构练习示例：鸡兔同笼不要只换鸡和兔数量，可以换成两轮车和三轮车、普通票和贵宾票、单价不同的两类物品；年龄倍数题可以换成树高、存款、积分等随时间一起变化的场景；周期排列题可以换成站牌、座位、彩旗、节目顺序等场景。",
     "判断学生是否能复述结构：合格复述应说出对象、单位/标准、关系模型和目标之间如何连接。若只说步骤或只背答案，要温和指出还没有说到结构，并引导补上对象和关系。",
     "如果用户是在请求出题、练习、测试，例如“给我出一道题”“来一道鸡兔同笼题”，这不是学生作答。必须先直接给出一道完整题目，语气自然，不要上来就让用户分析对象、单位/标准、关系。题目后只留一句轻提示，例如“你先试试，卡住了我再提示”。",
+    "如果用户提出明确疑问、反驳或追问为什么，例如“为什么要这样做”“为什么先平均分”“不是这个意思”“我问的是……”，必须先正面回答这个疑问。先用 2-5 句话解释原因，再根据需要回到结构；不要跳过用户的问题继续按原流程追问。",
     "启发模式的边界：不直接给最终答案，不一次性讲完整路线；但必须有质量，不能反复追问同一个点。学生连续答对时要整合并推进。",
     "对学生说大白话，不暴露内部理论术语。禁止使用：SDE、纠缠、差异序列、结构显露、显露态、六爪、抓核、抓裂缝、改姓、锻造、投放、本体论、发生链、在 E 中、经 D、成 S。",
     "数学公式用学生可读写法，例如 x <= (a-2)/4、x ≥ -1、3/4 ÷ 1/8。尽量不要输出 \\dfrac、\\leqslant、\\begin{cases} 等 LaTeX 原码。",
@@ -765,6 +769,24 @@ function needsStructureReveal(messages) {
 function isPracticeRequest(messages) {
   const latest = latestUserText(messages);
   return /出\s*(一|1)?\s*道|来\s*(一|1)?\s*道|给我.*题|给.*出.*题|练习题|练一练|测试一下|考考我|生成.*题|安排.*练习/.test(latest);
+}
+
+function isDirectUserQuestion(messages) {
+  const latest = latestUserText(messages);
+  return /为什么|为啥|怎么会|凭什么|我问的是|不是这个意思|不回答|没回答|先回答|哪里体现|什么意思|解释一下|听不懂|没懂|不明白|不对/.test(latest);
+}
+
+function directQuestionLine(messages) {
+  if (!isDirectUserQuestion(messages)) return "";
+  return "当前用户提出了明确疑问或反驳。请先正面回答用户这句话本身，不要继续套用原来的启发流程。回答时先说“你问的是……”，再解释原因；解释完后最多补一个很小的下一步问题。";
+}
+
+function directQuestionFallback(messages) {
+  const latest = latestUserText(messages);
+  if (/平均分|先平均|尽量平均|抽屉|抽屉原理/.test(latest)) {
+    return "你问的是：为什么抽屉原理里要先尽量平均分。\n\n原因是：我们想找的是“最少也会多出来”的那个临界点。先平均分，等于把东西尽可能分散，让每个盒子都尽量少，这样才是最不容易超出的情况。连这种最分散的情况都放不下，多出来的那一份就一定会把某个盒子顶上去。\n\n所以“先平均分”不是为了真的平均，而是为了找到最保守、最不容易出事的底线。";
+  }
+  return "你这个问题应该先直接回答，不能只按步骤往下推。\n\n我的意思是：这一类题里，每一步方法都要有理由。如果我说“先这样做”，就必须解释它为什么能帮助我们看见关系。你可以把你的疑问再具体说一句，比如“为什么先看这个量”或“为什么不用另一种做法”，我会先回答这个问题本身。";
 }
 
 function practiceRequestLine(messages) {
@@ -953,6 +975,9 @@ function fallbackTeachingReply(messages, profile = {}) {
   const text = latestUserText(messages);
   const allText = historyText(messages, 10);
   const isExplanation = profile?.mode === "讲解模式";
+  if (isDirectUserQuestion(messages)) {
+    return directQuestionFallback(messages);
+  }
   if (/记错|原题不是|不是.*原题|题目错了|哪里有|哪有|看清原题|不是这个题/.test(text)) {
     const problem = activeProblemText(messages);
     if (problem) {
@@ -995,6 +1020,9 @@ function fallbackTeachingReply(messages, profile = {}) {
 function nextHeuristicQuestion(messages) {
   const userCount = messages.filter(message => message.role === "user").length;
   const latest = latestUserText(messages);
+  if (isDirectUserQuestion(messages)) {
+    return directQuestionFallback(messages);
+  }
   if (isPracticeRequest(messages)) {
     return fallbackTeachingReply(messages, { mode: "启发模式" });
   }
@@ -1052,6 +1080,7 @@ async function requestDeepSeek(messages, profile, config, options = {}) {
         content: [
           systemPrompt(profile || {}, messages),
           modelPromptLine(config),
+          directQuestionLine(messages),
           practiceRequestLine(messages),
           activeProblemLine(messages),
           structureFollowupLine(messages),
@@ -1217,22 +1246,27 @@ async function callDeepSeek(messages, profile) {
 }
 
 async function callVision(image) {
-  if (!VISION_API_KEY) {
-    throw new Error("当前网站还没有配置图片识别模型。请先手动输入题目文字，或联系管理员配置 VISION_API_KEY。");
+  const visionApiKey = VISION_PROVIDER === "kimi" ? (KIMI_API_KEY || VISION_API_KEY) : VISION_API_KEY;
+  const visionBaseUrl = VISION_PROVIDER === "kimi" ? KIMI_BASE_URL : VISION_BASE_URL;
+  const visionModel = VISION_PROVIDER === "kimi" ? KIMI_VISION_MODEL : VISION_MODEL;
+  if (!visionApiKey) {
+    throw new Error(VISION_PROVIDER === "kimi"
+      ? "当前网站还没有配置 KIMI_API_KEY，暂时不能使用 Kimi 图片识别。"
+      : "当前网站还没有配置图片识别模型。请先手动输入题目文字，或联系管理员配置 VISION_API_KEY。");
   }
 
   const imageForProvider = VISION_PROVIDER === "zhipu"
     ? image.replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/, "")
     : image;
 
-  const response = await fetch(`${VISION_BASE_URL}/chat/completions`, {
+  const response = await fetch(`${visionBaseUrl}/chat/completions`, {
     method: "POST",
     headers: {
-      "Authorization": `Bearer ${VISION_API_KEY}`,
+      "Authorization": `Bearer ${visionApiKey}`,
       "Content-Type": "application/json"
     },
     body: JSON.stringify({
-      model: VISION_MODEL,
+      model: visionModel,
       temperature: 0,
       max_tokens: VISION_MAX_TOKENS,
       messages: [
