@@ -1080,33 +1080,42 @@
     }
 
     function visualCard(title, svg, legend, controls = "") {
+      const controlHtml = controls || `<button class="btn" type="button" data-replay-diagram>重新播放</button>`;
       visualBoard.innerHTML = `
         <div class="visual-card">
           <div class="visual-heading">
             <div class="visual-title">${title}</div>
-            ${controls}
+            ${controlHtml}
           </div>
           ${svg}
           <div class="legend">${legend}</div>
         </div>
       `;
+      visualBoard.querySelector("[data-replay-diagram]")?.addEventListener("click", playDiagramAnimation);
+      requestAnimationFrame(playDiagramAnimation);
     }
 
     function drawDefault() {
       visualCard(
         "解题结构图",
         `<svg viewBox="0 0 320 180" role="img" aria-label="学习结构图">
-          <rect x="24" y="62" width="74" height="44" rx="8" fill="#fff" stroke="#98a2b3"/>
-          <rect x="123" y="62" width="74" height="44" rx="8" fill="#eef8f6" stroke="#0f766e"/>
-          <rect x="222" y="62" width="74" height="44" rx="8" fill="#fff" stroke="#98a2b3"/>
-          <text x="43" y="89" font-size="13" fill="#344054">卡点</text>
-          <text x="142" y="89" font-size="13" fill="#0f766e">提示</text>
-          <text x="235" y="89" font-size="13" fill="#344054">方法</text>
-          <line x1="98" y1="84" x2="123" y2="84" stroke="#667085"/>
-          <polygon points="123,84 115,79 115,89" fill="#667085"/>
-          <line x1="197" y1="84" x2="222" y2="84" stroke="#667085"/>
-          <polygon points="222,84 214,79 214,89" fill="#667085"/>
-          <text x="50" y="140" font-size="13" fill="#667085">先看卡在哪里，再推进一小步</text>
+          <g class="diagram-node" style="--delay:0ms">
+            <rect x="24" y="62" width="74" height="44" rx="8" fill="#fff" stroke="#98a2b3"/>
+            <text x="43" y="89" font-size="13" fill="#344054">卡点</text>
+          </g>
+          <line class="diagram-edge" pathLength="1" style="--delay:360ms" x1="98" y1="84" x2="123" y2="84" stroke="#667085"/>
+          <polygon class="diagram-edge-label" style="--delay:560ms" points="123,84 115,79 115,89" fill="#667085"/>
+          <g class="diagram-node" style="--delay:680ms">
+            <rect x="123" y="62" width="74" height="44" rx="8" fill="#eef8f6" stroke="#0f766e"/>
+            <text x="142" y="89" font-size="13" fill="#0f766e">提示</text>
+          </g>
+          <line class="diagram-edge" pathLength="1" style="--delay:1040ms" x1="197" y1="84" x2="222" y2="84" stroke="#667085"/>
+          <polygon class="diagram-edge-label" style="--delay:1240ms" points="222,84 214,79 214,89" fill="#667085"/>
+          <g class="diagram-node diagram-focus" style="--delay:1360ms">
+            <rect x="222" y="62" width="74" height="44" rx="8" fill="#fff" stroke="#98a2b3"/>
+            <text x="235" y="89" font-size="13" fill="#344054">方法</text>
+          </g>
+          <text class="diagram-edge-label" style="--delay:1740ms" x="50" y="140" font-size="13" fill="#667085">先看卡在哪里，再推进一小步</text>
         </svg>`,
         "我会先提问启发。等你说出想法后，再根据需要画出结构图。"
       );
@@ -1116,10 +1125,12 @@
       visualCard(
         "先思考，再画图",
         `<svg viewBox="0 0 320 170" role="img" aria-label="先思考">
-          <rect x="42" y="42" width="236" height="48" rx="8" fill="#fff7ed" stroke="#f97316"/>
-          <text x="160" y="72" text-anchor="middle" font-size="14" fill="#9a3412">先说出你的想法</text>
-          <path d="M88 118 C120 96, 190 96, 224 118" fill="none" stroke="#98a2b3" stroke-width="2" stroke-dasharray="5 4"/>
-          <text x="160" y="142" text-anchor="middle" font-size="12" fill="#667085">回答后，我再判断是否画结构图</text>
+          <g class="diagram-node diagram-focus" style="--delay:0ms">
+            <rect x="42" y="42" width="236" height="48" rx="8" fill="#fff7ed" stroke="#f97316"/>
+            <text x="160" y="72" text-anchor="middle" font-size="14" fill="#9a3412">先说出你的想法</text>
+          </g>
+          <path class="diagram-edge" pathLength="1" style="--delay:520ms" d="M88 118 C120 96, 190 96, 224 118" fill="none" stroke="#98a2b3" stroke-width="2" stroke-dasharray="5 4"/>
+          <text class="diagram-edge-label" style="--delay:900ms" x="160" y="142" text-anchor="middle" font-size="12" fill="#667085">回答后，我再判断是否画结构图</text>
         </svg>`,
         "请先尝试说：已知什么？要求什么？第一步想怎么做？"
       );
@@ -1220,8 +1231,6 @@
         "这张动图会按顺序展示：先出现对象和条件，再连上关键关系，最后落到目标结果。",
         `<button class="btn" type="button" data-replay-diagram>重新播放</button>`
       );
-      visualBoard.querySelector("[data-replay-diagram]")?.addEventListener("click", playDiagramAnimation);
-      requestAnimationFrame(playDiagramAnimation);
     }
 
     function escapeHtml(value) {
