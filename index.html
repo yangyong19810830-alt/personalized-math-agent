@@ -312,13 +312,86 @@
     }
     .visual-title {
       font-weight: 800;
-      margin-bottom: 8px;
       font-size: 14px;
+    }
+    .visual-heading {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+    .visual-controls {
+      display: flex;
+      justify-content: flex-end;
+      gap: 6px;
+      margin-bottom: 8px;
+    }
+    .visual-controls .btn {
+      padding: 5px 8px;
+      font-size: 12px;
+      border-radius: 999px;
+      white-space: nowrap;
     }
     .visual-card svg {
       width: 100%;
       height: auto;
       display: block;
+    }
+    .diagram-node,
+    .diagram-edge,
+    .diagram-edge-label {
+      opacity: 1;
+    }
+    .visual-card.playing .diagram-node {
+      opacity: 0;
+      transform-box: fill-box;
+      transform-origin: center;
+      animation: diagramNodeIn .42s ease-out forwards;
+      animation-delay: var(--delay, 0ms);
+    }
+    .visual-card.playing .diagram-edge {
+      opacity: 0;
+      stroke-dasharray: 1;
+      stroke-dashoffset: 1;
+      animation: diagramLineIn .58s ease-out forwards;
+      animation-delay: var(--delay, 0ms);
+    }
+    .visual-card.playing .diagram-edge-label {
+      opacity: 0;
+      animation: diagramLabelIn .32s ease-out forwards;
+      animation-delay: var(--delay, 0ms);
+    }
+    .visual-card.playing .diagram-focus {
+      animation: diagramPulse 1.2s ease-in-out 2;
+      animation-delay: var(--delay, 0ms);
+    }
+    @keyframes diagramNodeIn {
+      from { opacity: 0; transform: scale(.88) translateY(6px); }
+      to { opacity: 1; transform: scale(1) translateY(0); }
+    }
+    @keyframes diagramLineIn {
+      0% { opacity: 0; stroke-dashoffset: 1; }
+      18% { opacity: 1; }
+      100% { opacity: 1; stroke-dashoffset: 0; }
+    }
+    @keyframes diagramLabelIn {
+      from { opacity: 0; transform: translateY(3px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes diagramPulse {
+      0%, 100% { filter: none; }
+      50% { filter: drop-shadow(0 0 8px rgba(15, 118, 110, .35)); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .visual-card.playing .diagram-node,
+      .visual-card.playing .diagram-edge,
+      .visual-card.playing .diagram-edge-label,
+      .visual-card.playing .diagram-focus {
+        opacity: 1;
+        animation: none;
+        stroke-dashoffset: 0;
+      }
     }
     .legend {
       color: var(--muted);
@@ -1006,10 +1079,13 @@
       }
     }
 
-    function visualCard(title, svg, legend) {
+    function visualCard(title, svg, legend, controls = "") {
       visualBoard.innerHTML = `
         <div class="visual-card">
-          <div class="visual-title">${title}</div>
+          <div class="visual-heading">
+            <div class="visual-title">${title}</div>
+            ${controls}
+          </div>
           ${svg}
           <div class="legend">${legend}</div>
         </div>
@@ -1061,6 +1137,14 @@
       return styles[type] || styles.step;
     }
 
+    function playDiagramAnimation() {
+      const card = visualBoard.querySelector(".visual-card");
+      if (!card) return;
+      card.classList.remove("playing");
+      void card.offsetWidth;
+      card.classList.add("playing");
+    }
+
     function renderStructureDiagram(diagram) {
       if (!diagram || !Array.isArray(diagram.nodes) || !diagram.nodes.length) {
         drawDefault();
@@ -1069,6 +1153,7 @@
 
       const nodes = diagram.nodes.slice(0, 9);
       const edges = Array.isArray(diagram.edges) ? diagram.edges.slice(0, 10) : [];
+      const nodeOrder = new Map(nodes.map((node, index) => [node.id, index]));
       const cols = nodes.length <= 4 ? 1 : 2;
       const nodeW = cols === 1 ? 220 : 132;
       const nodeH = 50;
@@ -1090,27 +1175,34 @@
       const rows = cols === 1 ? nodes.length : Math.ceil(nodes.length / 2);
       const height = Math.max(190, startY * 2 + rows * nodeH + (rows - 1) * gapY);
 
-      const edgeSvg = edges.map(edge => {
+      const edgeSvg = edges.map((edge, index) => {
         const from = positions[edge.from];
         const to = positions[edge.to];
         if (!from || !to) return "";
+        const fromIndex = nodeOrder.get(edge.from) ?? 0;
+        const toIndex = nodeOrder.get(edge.to) ?? fromIndex + 1;
+        const delay = Math.max(fromIndex, toIndex) * 420 + index * 90 + 180;
         const x1 = from.x + nodeW / 2;
         const y1 = from.y + nodeH;
         const x2 = to.x + nodeW / 2;
         const y2 = to.y;
         const midY = (y1 + y2) / 2;
         return `
-          <path d="M${x1} ${y1} C${x1} ${midY}, ${x2} ${midY}, ${x2} ${y2}" fill="none" stroke="#98a2b3" stroke-width="1.7" marker-end="url(#arrow)"/>
-          ${edge.label ? `<text x="${(x1 + x2) / 2}" y="${midY - 4}" text-anchor="middle" font-size="10" fill="#667085">${escapeHtml(edge.label)}</text>` : ""}
+          <path class="diagram-edge" pathLength="1" style="--delay:${delay}ms" d="M${x1} ${y1} C${x1} ${midY}, ${x2} ${midY}, ${x2} ${y2}" fill="none" stroke="#98a2b3" stroke-width="1.7" marker-end="url(#arrow)"/>
+          ${edge.label ? `<text class="diagram-edge-label" style="--delay:${delay + 220}ms" x="${(x1 + x2) / 2}" y="${midY - 4}" text-anchor="middle" font-size="10" fill="#667085">${escapeHtml(edge.label)}</text>` : ""}
         `;
       }).join("");
 
-      const nodeSvg = nodes.map(node => {
+      const nodeSvg = nodes.map((node, index) => {
         const pos = positions[node.id];
         const [fill, stroke] = nodeStyle(node.type);
+        const delay = index * 420;
+        const focusClass = node.type === "goal" || node.type === "result" ? " diagram-focus" : "";
         return `
-          <rect x="${pos.x}" y="${pos.y}" width="${nodeW}" height="${nodeH}" rx="8" fill="${fill}" stroke="${stroke}" stroke-width="1.6"/>
-          <text x="${pos.x + nodeW / 2}" y="${pos.y + 30}" text-anchor="middle" font-size="12" fill="#1f2937">${escapeHtml(node.label)}</text>
+          <g class="diagram-node${focusClass}" style="--delay:${delay}ms">
+            <rect x="${pos.x}" y="${pos.y}" width="${nodeW}" height="${nodeH}" rx="8" fill="${fill}" stroke="${stroke}" stroke-width="1.6"/>
+            <text x="${pos.x + nodeW / 2}" y="${pos.y + 30}" text-anchor="middle" font-size="12" fill="#1f2937">${escapeHtml(node.label)}</text>
+          </g>
         `;
       }).join("");
 
@@ -1125,8 +1217,11 @@
           ${edgeSvg}
           ${nodeSvg}
         </svg>`,
-        "这张图展示的是本题从已知条件到目标结果的推进关系。"
+        "这张动图会按顺序展示：先出现对象和条件，再连上关键关系，最后落到目标结果。",
+        `<button class="btn" type="button" data-replay-diagram>重新播放</button>`
       );
+      visualBoard.querySelector("[data-replay-diagram]")?.addEventListener("click", playDiagramAnimation);
+      requestAnimationFrame(playDiagramAnimation);
     }
 
     function escapeHtml(value) {
