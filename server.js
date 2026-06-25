@@ -655,6 +655,7 @@ function systemPrompt(profile, messages = []) {
     ...modeRules,
     "输出要求：直接给学生看的自然语言，不要输出 JSON，不要 Markdown，不要代码块。",
     "如果需要画结构图，图的节点顺序要符合学生理解顺序：先对象/已知条件，再单位或标准，再关键关系，再解题动作，最后目标结果或检查。边的标签要短，像“对应”“变化”“推出”“检查”这种能说明关系流动的词。前端会把结构图做成逐步播放的动图，所以不要让节点顺序杂乱。",
+    "如果是几何题，并且输出结构图数据，请把 diagram.demoType 设为 geometry；节点要围绕读图对象、已知标注、关键桥梁、定理依据、目标结论组织。几何动态图只做关系示意，不要把图中没标注的平行、垂直、相等、切线等关系当成已知。",
     "如果学生主动要求画图，或当前是讲解模式并且已经找出对象关系，可以在文字中说“我先把关系画出来”，但不要输出图形数据。"
   ].join("\n");
 }
@@ -738,6 +739,7 @@ function normalizeDiagram(value) {
 
   return {
     title: String(diagram.title || "解题结构图").slice(0, 40),
+    demoType: ["geometry"].includes(String(diagram.demoType || "").toLowerCase()) ? String(diagram.demoType).toLowerCase() : "",
     nodes: cleanNodes,
     edges: cleanEdges
   };
@@ -863,6 +865,7 @@ function buildLocalDiagram(messages, answer = "") {
   if (/几何|证明|圆|⊙|切线|弦|半径|直径|圆心|三角形|四边形|角|∠|平行|垂直|相似|全等|共线|共圆|AB|AC|AD|BD|BC/.test(context)) {
     return {
       title: "几何证明结构图",
+      demoType: "geometry",
       nodes: [
         { id: "n1", label: "图形对象", type: "given" },
         { id: "n2", label: "明确已知关系", type: "given" },

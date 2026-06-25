@@ -1,4 +1,4 @@
-const CACHE_NAME = "sde-math-agent-pwa-v11";
+const CACHE_NAME = "sde-math-agent-pwa-v12";
 const APP_SHELL = [
   "/",
   "/index.html",
