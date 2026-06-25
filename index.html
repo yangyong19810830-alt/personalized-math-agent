@@ -523,7 +523,7 @@
           <img id="previewImage" alt="题目图片预览" />
           <div>
             <div class="small" id="previewText">已选择题目图片</div>
-            <button class="btn" id="recognizeImage">重新识别并提问</button>
+            <button class="btn" id="recognizeImage">识别并提问</button>
             <button class="btn" id="clearImage">清除</button>
           </div>
         </div>
@@ -531,7 +531,7 @@
           <label class="btn file-btn">上传题图
             <input id="imageInput" type="file" accept="image/*" />
           </label>
-          <textarea id="question" placeholder="输入题目，或直接 Ctrl+V 粘贴题目截图。"></textarea>
+          <textarea id="question" placeholder="输入题目，或直接 Ctrl+V 粘贴题目截图。上传题图后，也可以补充：只做第3小问、图中AB是切线等。"></textarea>
           <button class="btn voice-btn" id="voiceInput">语音输入</button>
           <button class="btn primary" id="send">发送</button>
         </div>
@@ -1333,12 +1333,13 @@
         addMessage("请先上传一张题目图片。", "error");
         return false;
       }
+      const hint = document.querySelector("#question").value.trim();
       const loading = addMessage("正在识别题目图片，复杂几何图可能需要几秒钟...");
       try {
         const res = await fetch("/api/vision", {
           method: "POST",
           headers: { "Content-Type": "application/json", ...authHeaders() },
-          body: JSON.stringify({ image: selectedImageData })
+          body: JSON.stringify({ image: selectedImageData, hint })
         });
         const data = await res.json();
         loading.remove();
@@ -1351,8 +1352,11 @@
           addMessage("图片识别完成了，但没有读到清晰的题目内容。可以换一张更清楚的图片，或手动输入题目。", "error");
           return false;
         }
+        const combinedText = hint
+          ? `【用户补充说明】${hint}\n\n【图片识别结果】\n${recognizedText}`
+          : `【图片识别结果】\n${recognizedText}`;
         document.querySelector("#question").value = "";
-        await send(recognizedText, { displayText: "我上传了一张题目图片" });
+        await send(combinedText, { displayText: hint ? "我上传了一张题目图片，并补充了说明" : "我上传了一张题目图片" });
         return true;
       } catch {
         loading.remove();
@@ -1373,7 +1377,7 @@
       selectedImageData = await fileToDataUrl(file);
       previewImage.src = selectedImageData;
       imagePreview.classList.add("show");
-      document.querySelector("#previewText").textContent = `已${source}题目图片，正在自动识别并开始提问。`;
+      document.querySelector("#previewText").textContent = `已${source}题目图片。可以先在输入框补充说明，例如“只做第3小问”“图中AB是切线”，再点“识别并提问”。`;
       return true;
     }
 
@@ -1475,9 +1479,7 @@
 
     document.querySelector("#imageInput").addEventListener("change", async event => {
       const file = event.target.files?.[0];
-      if (file && await acceptImageFile(file, "上传")) {
-        await recognizeSelectedImage();
-      }
+      if (file) await acceptImageFile(file, "上传");
     });
 
     document.querySelector("#question").addEventListener("paste", async event => {
@@ -1486,9 +1488,7 @@
       if (!imageItem) return;
       event.preventDefault();
       const file = imageItem.getAsFile();
-      if (await acceptImageFile(file, "粘贴")) {
-        await recognizeSelectedImage();
-      }
+      await acceptImageFile(file, "粘贴");
     });
 
     document.querySelector("#recognizeImage").addEventListener("click", recognizeSelectedImage);

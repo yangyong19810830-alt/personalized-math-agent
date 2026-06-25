@@ -642,6 +642,7 @@ function systemPrompt(profile, messages = []) {
     "判断学生是否能复述结构：合格复述应说出对象、单位/标准、关系模型和目标之间如何连接。若只说步骤或只背答案，要温和指出还没有说到结构，并引导补上对象和关系。",
     "如果用户是在请求出题、练习、测试，例如“给我出一道题”“来一道鸡兔同笼题”，这不是学生作答。必须先直接给出一道完整题目，语气自然，不要上来就让用户分析对象、单位/标准、关系。题目后只留一句轻提示，例如“你先试试，卡住了我再提示”。",
     "如果用户提出明确疑问、反驳或追问为什么，例如“为什么要这样做”“为什么先平均分”“不是这个意思”“我问的是……”，必须先正面回答这个疑问。先用 2-5 句话解释原因，再根据需要回到结构；不要跳过用户的问题继续按原流程追问。",
+    "如果学生回答有偏差、不标准、只回答了前面问题、漏掉最后一个问题，或连续两轮卡在同一处，不要继续模板式追问，也不要重复同一句话。改用选择式引导：给 2-4 个短选项，让学生选最接近自己想法的一项。选项要把学生带回正规路径，例如 A 先确认对象，B 先定单位/标准，C 先看关系，D 我不确定。每个选项尽量 8-18 字，便于手机上直接回复 A/B/C/D。",
     "启发模式的边界：不直接给最终答案，不一次性讲完整路线；但必须有质量，不能反复追问同一个点。学生连续答对时要整合并推进。",
     "对学生说大白话，不暴露内部理论术语。禁止使用：SDE、纠缠、差异序列、结构显露、显露态、六爪、抓核、抓裂缝、改姓、锻造、投放、本体论、发生链、在 E 中、经 D、成 S。",
     "数学公式用学生可读写法，例如 x <= (a-2)/4、x ≥ -1、3/4 ÷ 1/8。尽量不要输出 \\dfrac、\\leqslant、\\begin{cases} 等 LaTeX 原码。",
@@ -781,6 +782,25 @@ function isDirectUserQuestion(messages) {
 function directQuestionLine(messages) {
   if (!isDirectUserQuestion(messages)) return "";
   return "当前用户提出了明确疑问或反驳。请先正面回答用户这句话本身，不要继续套用原来的启发流程。回答时先说“你问的是……”，再解释原因；解释完后最多补一个很小的下一步问题。";
+}
+
+function needsChoiceScaffold(messages) {
+  const latest = latestUserText(messages);
+  const recent = historyText(messages, 8);
+  const userTurns = messages.filter(message => message.role === "user").length;
+  if (userTurns < 2) return false;
+  if (isDirectUserQuestion(messages) || isPracticeRequest(messages)) return false;
+  return /不知道|不会|不懂|不确定|没思路|卡住|随便|蒙|可能|应该|前面|后面|最后|只会|不标准|漏了|少答|没答完|只回答/.test(latest)
+    || /不对|错了|偏了|漏掉|没回答最后|无意义重复|模板|绕圈|继续卡/.test(recent);
+}
+
+function choiceScaffoldLine(messages) {
+  if (!needsChoiceScaffold(messages)) return "";
+  return "当前学生回答有偏差、不完整或已经卡住。请停止重复模板追问，改用选择式引导：先用一句话承认哪里已经有价值，再给 2-4 个短选项让学生选 A/B/C/D。选项要帮助学生回到正规路径，例如：A 先确认对象；B 先定单位/标准；C 先找两个对象关系；D 我不确定，从最容易看的一点开始。不要在选项里直接泄露最终答案。";
+}
+
+function choiceScaffoldReply() {
+  return "我们先别在同一个地方绕了。你现在选一个入口就行：\n\nA. 先确认题里的对象\nB. 先确定单位/标准\nC. 先找对象之间的关系\nD. 我不确定，从最容易的一点开始\n\n你直接回 A/B/C/D，我再按你选的入口往下带。";
 }
 
 function directQuestionFallback(messages) {
@@ -980,6 +1000,9 @@ function fallbackTeachingReply(messages, profile = {}) {
   if (isDirectUserQuestion(messages)) {
     return directQuestionFallback(messages);
   }
+  if (needsChoiceScaffold(messages)) {
+    return choiceScaffoldReply();
+  }
   if (/记错|原题不是|不是.*原题|题目错了|哪里有|哪有|看清原题|不是这个题/.test(text)) {
     const problem = activeProblemText(messages);
     if (problem) {
@@ -1027,6 +1050,9 @@ function nextHeuristicQuestion(messages) {
   }
   if (isPracticeRequest(messages)) {
     return fallbackTeachingReply(messages, { mode: "启发模式" });
+  }
+  if (needsChoiceScaffold(messages)) {
+    return choiceScaffoldReply();
   }
   if (userCount >= 4) {
     return "我们把前面合起来看：你已经找到了一个关键对象，也开始说明它和题目关系了。现在不要停在原地，请往前推进一个台阶：用一句话说清“左边这个表达式表示谁，右边这个表达式表示谁”，然后判断两边为什么应该相等或对应。";
@@ -1083,6 +1109,7 @@ async function requestDeepSeek(messages, profile, config, options = {}) {
           systemPrompt(profile || {}, messages),
           modelPromptLine(config),
           directQuestionLine(messages),
+          choiceScaffoldLine(messages),
           practiceRequestLine(messages),
           activeProblemLine(messages),
           structureFollowupLine(messages),
@@ -1283,7 +1310,7 @@ function extractVisionText(data) {
   return deepSeekMessageText(message);
 }
 
-async function callVisionWithProvider(image, provider) {
+async function callVisionWithProvider(image, provider, hint = "") {
   const config = visionProviderConfig(provider);
   if (!config.apiKey) {
     throw new Error(provider === "kimi"
@@ -1294,6 +1321,10 @@ async function callVisionWithProvider(image, provider) {
   const imageForProvider = config.useBareBase64
     ? image.replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/, "")
     : image;
+  const cleanHint = String(hint || "").trim().slice(0, 800);
+  const hintPrompt = cleanHint
+    ? `用户补充说明：${cleanHint}\n请结合补充说明识别图片。如果用户指定“只做第3小问/只证明某一步”，仍要识别相关题干和指定小问；如果用户同时输入了题目文字，以用户补充说明作为优先参考，用图片核对图形和条件。`
+    : "";
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), config.timeoutMs);
@@ -1326,7 +1357,7 @@ async function callVisionWithProvider(image, provider) {
         {
           role: "user",
           content: [
-            { type: "text", text: "请完整识别这张数学题图片。如果是几何题，先读文字，再逐项描述图形：有哪些点和图形，哪些关系是明确标注的，哪些地方看不清。不要补充图片中没有标注的条件。" },
+            { type: "text", text: ["请完整识别这张数学题图片。如果是几何题，先读文字，再逐项描述图形：有哪些点和图形，哪些关系是明确标注的，哪些地方看不清。不要补充图片中没有标注的条件。", hintPrompt].filter(Boolean).join("\n") },
             { type: "image_url", image_url: { url: imageForProvider } }
           ]
         }
@@ -1352,7 +1383,7 @@ async function callVisionWithProvider(image, provider) {
   return text;
 }
 
-async function callVision(image) {
+async function callVision(image, hint = "") {
   const providers = VISION_PROVIDER === "kimi"
     ? ["kimi", ...(VISION_API_KEY ? ["zhipu"] : [])]
     : ["zhipu"];
@@ -1360,7 +1391,7 @@ async function callVision(image) {
 
   for (const provider of providers) {
     try {
-      return await callVisionWithProvider(image, provider);
+      return await callVisionWithProvider(image, provider, hint);
     } catch (error) {
       lastError = error;
     }
@@ -1819,6 +1850,7 @@ async function handleVision(req, res) {
     }
     const body = JSON.parse(await readBody(req, 12 * 1024 * 1024) || "{}");
     const image = String(body.image || "");
+    const hint = String(body.hint || "").trim().slice(0, 800);
     if (!image.startsWith("data:image/")) {
       sendJson(res, 400, { error: "请上传有效的题目图片" });
       return;
@@ -1827,7 +1859,7 @@ async function handleVision(req, res) {
       sendJson(res, 400, { error: "图片太大了，请上传更小或压缩后的图片。几何题建议保留清晰点名和角标。" });
       return;
     }
-    const text = await callVision(image);
+    const text = await callVision(image, hint);
     sendJson(res, 200, { text });
   } catch (error) {
     sendJson(res, 500, { error: error.message || "图片识别失败" });
