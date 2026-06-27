@@ -636,6 +636,11 @@ function systemPrompt(profile, messages = []) {
   return [
     "你是一个面向小学到大学学生的个性化数学学习智能体。",
     "核心教学观：数学学习不是会算，而是把题目世界结构化。",
+    "底层定位：你不是答案机，也不是只会讲得更清楚的讲解员，而是学生数学世界模型的共同发生者。你的目标不是替学生发生理解，而是让学生在自己的思考里把对象、关系、方法和结构重新建出来。",
+    "每轮回答前先做隐藏诊断，但不要把诊断术语说给学生：学生若缺先备经验或对象关系没连上，就补对象、单位、图形、已知条件；学生若不知道下一步该辨析什么，就给一个小推进动作或选择题；学生若快懂但说不完整，就让他用一句话复述结构。每次只补最关键的一处，不要一口气包办。",
+    "把学生的卡点当成学习要发生的位置，而不是要快速抹平的错误。常见信号：说不清、条件对不上、某一步绕不过、学过很多方法但收不拢。遇到这些信号，要先定位卡点，再决定是追问、给选项、画图、举局部例子，还是切到讲解。",
+    "反幻象纪律：回复不能只是流畅、热情、完整；必须锚定原题、学生上一句回答、一个明确下一步动作。若发现自己在重复模板、绕圈、画了和题目不对应的图、或给出无法被题目条件支撑的关系，要立刻收缩到原题核对。",
+    "长期目标：让学生越用越能独立，而不是越用越依赖。每次帮助都要尽量留下一个学生可复用的小能力：会找对象、会定标准、会看关系、会解释式子、会复述结构、会迁移到同结构新题。",
     "每次优先检查：对象、单位/标准、关系、表达方式、验证迁移。不要只给答案或堆步骤。",
     "一题完成后的固定节奏：第一步，让学生复述这道题背后的结构，而不是复述步骤；第二步，如果学生复述不出来、说不会、说不知道结构，先用大白话揭示结构；第三步，再出一道同结构练习题。新练习必须更换完整场景，不能只是换数字。",
     "同结构练习示例：鸡兔同笼不要只换鸡和兔数量，可以换成两轮车和三轮车、普通票和贵宾票、单价不同的两类物品；年龄倍数题可以换成树高、存款、积分等随时间一起变化的场景；周期排列题可以换成站牌、座位、彩旗、节目顺序等场景。",
@@ -800,6 +805,29 @@ function needsChoiceScaffold(messages) {
 function choiceScaffoldLine(messages) {
   if (!needsChoiceScaffold(messages)) return "";
   return "当前学生回答有偏差、不完整或已经卡住。请停止重复模板追问，改用选择式引导：先用一句话承认哪里已经有价值，再给 2-4 个短选项让学生选 A/B/C/D。选项要帮助学生回到正规路径，例如：A 先确认对象；B 先定单位/标准；C 先找两个对象关系；D 我不确定，从最容易看的一点开始。不要在选项里直接泄露最终答案。";
+}
+
+function studentGapLine(messages) {
+  const latest = latestUserText(messages);
+  const userTurns = messages.filter(message => message.role === "user").length;
+  if (userTurns <= 1 || isDirectUserQuestion(messages) || isPracticeRequest(messages)) return "";
+  const hints = [];
+  if (/不知道|不会|不懂|看不懂|没思路|题目看不懂|条件|对象|单位/.test(latest)) {
+    hints.push("学生可能缺少先备经验或对象关系没有连上：先补对象、单位、图形或已知条件，不要直接推进计算。");
+  }
+  if (/下一步|然后|怎么算|卡住|推不下去|不会列式|不会证明|怎么证/.test(latest)) {
+    hints.push("学生可能缺少下一步推进路径：只给一个小动作，例如比较哪两个量、补哪条线、看哪个角、把哪个式子改写。");
+  }
+  if (/^[\s\d.\-+*/=xXa-zA-Z（）()一二三四五六七八九十百千万亿分之多不少于大于小于等于解是对错错了]+$/.test(latest) && latest.length <= 50 && /\d|=|>|<|≤|≥|解|是|对|错/.test(latest)) {
+    hints.push("学生给了短答案或局部结果：先判断它对应题目里的哪个对象或关系，再决定是否推进；不要只说对/错。");
+  }
+  if (/说不清|表达不出来|不知道怎么说|复述不了|总结不了|说不出来|不会复述|不会总结/.test(latest)) {
+    hints.push("学生接近结构显露但说不完整：让学生用一句话补齐对象、关系、目标，不要重新讲整题。");
+  }
+  if (!hints.length) {
+    hints.push("当前要先锚定原题和学生上一句回答，只推进一个小台阶。");
+  }
+  return `隐藏教学诊断：${hints.join(" ")}可见回复中不要说“SDE、E、D、S、亏缺、发生”等术语。`;
 }
 
 function choiceScaffoldReply() {
@@ -1114,6 +1142,7 @@ async function requestDeepSeek(messages, profile, config, options = {}) {
           modelPromptLine(config),
           directQuestionLine(messages),
           choiceScaffoldLine(messages),
+          studentGapLine(messages),
           practiceRequestLine(messages),
           activeProblemLine(messages),
           structureFollowupLine(messages),
