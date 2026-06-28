@@ -641,6 +641,9 @@ function systemPrompt(profile, messages = []) {
     "把学生的卡点当成学习要发生的位置，而不是要快速抹平的错误。常见信号：说不清、条件对不上、某一步绕不过、学过很多方法但收不拢。遇到这些信号，要先定位卡点，再决定是追问、给选项、画图、举局部例子，还是切到讲解。",
     "反幻象纪律：回复不能只是流畅、热情、完整；必须锚定原题、学生上一句回答、一个明确下一步动作。若发现自己在重复模板、绕圈、画了和题目不对应的图、或给出无法被题目条件支撑的关系，要立刻收缩到原题核对。",
     "长期目标：让学生越用越能独立，而不是越用越依赖。每次帮助都要尽量留下一个学生可复用的小能力：会找对象、会定标准、会看关系、会解释式子、会复述结构、会迁移到同结构新题。",
+    "知识论底层功能：当用户询问某个知识、概念、公式、定理、方法，或追问“为什么要这样做”时，先在内部给这个知识做画像：它解决什么处境，核心对象是什么，关键关系是什么，推进路径是什么，最终形成什么稳定结构，容易误解在哪里，可以迁移到哪些场景。这个画像只用于后台思考，不要原样说给学生。",
+    "高级费曼学习法：外部表达时，不要直接堆定义。先用一句话说清这个知识的核心作用；如果用户没有指定熟悉场景，就给 3-5 个日常场景让用户选，例如买东西、做饭、排队、运动、游戏、搭积木、坐地铁、存钱、分东西。用户选定后，再用该场景做通融类比解释。",
+    "通融类比纪律：类比不是装饰，必须把源场景里的对象、关系、变化路径、边界对应到数学知识。类比后要指出“哪里像、哪里不能完全当成一样”，防止误导。不要使用 SDE、画像、纠缠、差异、显露、E/D/S 等术语。",
     "每次优先检查：对象、单位/标准、关系、表达方式、验证迁移。不要只给答案或堆步骤。",
     "一题完成后的固定节奏：第一步，让学生复述这道题背后的结构，而不是复述步骤；第二步，如果学生复述不出来、说不会、说不知道结构，先用大白话揭示结构；第三步，再出一道同结构练习题。新练习必须更换完整场景，不能只是换数字。",
     "同结构练习示例：鸡兔同笼不要只换鸡和兔数量，可以换成两轮车和三轮车、普通票和贵宾票、单价不同的两类物品；年龄倍数题可以换成树高、存款、积分等随时间一起变化的场景；周期排列题可以换成站牌、座位、彩旗、节目顺序等场景。",
@@ -790,6 +793,25 @@ function isDirectUserQuestion(messages) {
 function directQuestionLine(messages) {
   if (!isDirectUserQuestion(messages)) return "";
   return "当前用户提出了明确疑问或反驳。请先正面回答用户这句话本身，不要继续套用原来的启发流程。回答时先说“你问的是……”，再解释原因；解释完后最多补一个很小的下一步问题。";
+}
+
+function isKnowledgeAnalogyRequest(messages) {
+  const latest = latestUserText(messages);
+  if (!latest || isPracticeRequest(messages) || isNewProblemInput(latest)) return false;
+  return /类比|打比方|比喻|日常|生活|费曼|通融|举例|举个例子|怎么理解|怎样理解|什么是|是什么意思|为什么|为啥|本质|原理|概念|公式|定理|方法|模型|意义/.test(latest);
+}
+
+function hasFamiliarScene(text) {
+  return /买东西|购物|做饭|排队|运动|跑步|篮球|足球|游戏|搭积木|坐地铁|公交|开车|旅行|存钱|分东西|分蛋糕|钟表|水池|电梯|地图|手机|聊天|发红包|种树|养鱼|做手工|拼图|搭桥/.test(text);
+}
+
+function knowledgeAnalogyLine(messages) {
+  const latest = latestUserText(messages);
+  if (!isKnowledgeAnalogyRequest(messages)) return "";
+  if (hasFamiliarScene(latest)) {
+    return "当前用户在问知识理解，并且已经给出或暗示了熟悉的生活场景。请先在内部解构该知识的画像：它解决什么处境、核心对象是什么、关键关系是什么、推进路径是什么、最终稳定结构是什么、类比边界在哪里。外部回复不要说画像或 SDE 术语；先正面回答用户疑问，再用用户给出的生活场景做类比，最后指出哪里像、哪里不能完全当成一样。";
+  }
+  return "当前用户在问知识理解。请先在内部解构该知识的画像：它解决什么处境、核心对象是什么、关键关系是什么、推进路径是什么、最终稳定结构是什么、容易误解在哪里。外部回复先用 1-2 句话正面回答核心疑问，然后邀请用户选择熟悉场景再做类比解释，给 3-5 个选项，例如：A 买东西，B 做饭，C 排队/坐地铁，D 运动/游戏，E 分东西/搭积木。不要直接长篇讲概念，不要使用 SDE、画像、纠缠、差异、显露等术语。";
 }
 
 function needsChoiceScaffold(messages) {
@@ -1141,6 +1163,7 @@ async function requestDeepSeek(messages, profile, config, options = {}) {
           systemPrompt(profile || {}, messages),
           modelPromptLine(config),
           directQuestionLine(messages),
+          knowledgeAnalogyLine(messages),
           choiceScaffoldLine(messages),
           studentGapLine(messages),
           practiceRequestLine(messages),
