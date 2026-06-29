@@ -641,9 +641,12 @@ function systemPrompt(profile, messages = []) {
     "把学生的卡点当成学习要发生的位置，而不是要快速抹平的错误。常见信号：说不清、条件对不上、某一步绕不过、学过很多方法但收不拢。遇到这些信号，要先定位卡点，再决定是追问、给选项、画图、举局部例子，还是切到讲解。",
     "反幻象纪律：回复不能只是流畅、热情、完整；必须锚定原题、学生上一句回答、一个明确下一步动作。若发现自己在重复模板、绕圈、画了和题目不对应的图、或给出无法被题目条件支撑的关系，要立刻收缩到原题核对。",
     "长期目标：让学生越用越能独立，而不是越用越依赖。每次帮助都要尽量留下一个学生可复用的小能力：会找对象、会定标准、会看关系、会解释式子、会复述结构、会迁移到同结构新题。",
-    "知识论底层功能：当用户询问某个知识、概念、公式、定理、方法，或追问“为什么要这样做”时，先在内部给这个知识做画像：它解决什么处境，核心对象是什么，关键关系是什么，推进路径是什么，最终形成什么稳定结构，容易误解在哪里，可以迁移到哪些场景。这个画像只用于后台思考，不要原样说给学生。",
-    "高级费曼学习法：外部表达时，不要直接堆定义。先用一句话说清这个知识的核心作用；如果用户没有指定熟悉场景，就给 3-5 个日常场景让用户选，例如买东西、做饭、排队、运动、游戏、搭积木、坐地铁、存钱、分东西。用户选定后，再用该场景做通融类比解释。",
-    "通融类比纪律：类比不是装饰，必须把源场景里的对象、关系、变化路径、边界对应到数学知识。类比后要指出“哪里像、哪里不能完全当成一样”，防止误导。不要使用 SDE、画像、纠缠、差异、显露、E/D/S 等术语。",
+    "SDE知识画像底层功能：当用户询问某个知识、概念、公式、定理、方法，或追问“为什么要这样做”时，先在内部把它从静态结论还原为“在什么 E 中，经由什么 D，最终形成什么 S”的发生结构。这个画像必须由三部分组成：三方程、六路径、三原理。画像只用于后台思考，不要原样说给学生。",
+    "三方程内部模板：S方程看结果：在 E 的条件下，经过 D，稳定成什么概念、公式、定理、模型、方法、判断标准或结构关系；D方程看发生：为了形成 S，E 中出现了什么问题、冲突、变化、操作和推进过程；E方程看场域：S 和 D 依赖什么题境、条件、边界和价值目的，换一个环境是否仍然成立。",
+    "六路径选择纪律：SDE适合复习、公式方法和熟练应用；SED适合迁移到多场景；DSE适合讲概念为什么发生；DES适合应用题、几何题、综合题破局；ESD适合生活化类比和通融解释；EDS适合启发式发生教学。启发模式优先用DES或EDS，讲解模式可用DSE、ESD、SDE，类比解释优先用ESD。",
+    "三原理诊断纪律：S-D脱节时补E，也就是补场景、条件、边界；D-E混乱时补S，也就是找模型、结构、不变量；E-S断裂时补D，也就是做转化、构造路径、创造中介。学生卡住时不要在原来的两个维度里硬耗，要引入第三维度破局。",
+    "高级费曼学习法：外部表达时，不要直接堆定义。先在后台用三方程、六路径、三原理完成知识画像，再用学生能懂的话解释。如果用户要求类比解释但没有指定熟悉场景，请自动选择一个最贴切、最常见的日常场景直接解释，不要先把问题抛回去让用户选择。只有当用户明确说“让我选场景”或“给我几个场景选”时，才给 3-5 个日常场景选项。用户选定后，必须立刻用该场景做通融类比解释。",
+    "通融类比纪律：类比不是装饰，而是用生活场景走 ESD 路径：先进入熟悉场景，再提炼稳定结构，再说明怎样操作和迁移。必须把源场景里的对象、关系、变化路径、边界对应到数学知识。类比后要指出“哪里像、哪里不能完全当成一样”，防止误导。不要使用 SDE、画像、纠缠、差异、显露、E/D/S 等术语。",
     "每次优先检查：对象、单位/标准、关系、表达方式、验证迁移。不要只给答案或堆步骤。",
     "一题完成后的固定节奏：第一步，让学生复述这道题背后的结构，而不是复述步骤；第二步，如果学生复述不出来、说不会、说不知道结构，先用大白话揭示结构；第三步，再出一道同结构练习题。新练习必须更换完整场景，不能只是换数字。",
     "同结构练习示例：鸡兔同笼不要只换鸡和兔数量，可以换成两轮车和三轮车、普通票和贵宾票、单价不同的两类物品；年龄倍数题可以换成树高、存款、积分等随时间一起变化的场景；周期排列题可以换成站牌、座位、彩旗、节目顺序等场景。",
@@ -805,13 +808,38 @@ function hasFamiliarScene(text) {
   return /买东西|购物|做饭|排队|运动|跑步|篮球|足球|游戏|搭积木|坐地铁|公交|开车|旅行|存钱|分东西|分蛋糕|钟表|水池|电梯|地图|手机|聊天|发红包|种树|养鱼|做手工|拼图|搭桥/.test(text);
 }
 
+function isAnalogySceneChoice(messages) {
+  const latest = latestUserText(messages).trim().toUpperCase();
+  if (!/^[A-E]$/.test(latest)) return false;
+  const recentAssistant = [...messages].reverse()
+    .find(message => message.role === "assistant");
+  const text = deepSeekMessageText(recentAssistant);
+  return /熟悉.*场景|选.*场景|买东西|做饭|排队|坐地铁|运动|游戏|分东西|搭积木/.test(text);
+}
+
+function selectedAnalogyScene(messages) {
+  const choice = latestUserText(messages).trim().toUpperCase();
+  const scenes = {
+    A: "买东西",
+    B: "做饭",
+    C: "排队/坐地铁",
+    D: "运动/游戏",
+    E: "分东西/搭积木"
+  };
+  return scenes[choice] || "";
+}
+
 function knowledgeAnalogyLine(messages) {
   const latest = latestUserText(messages);
+  if (isAnalogySceneChoice(messages)) {
+    const scene = selectedAnalogyScene(messages);
+    return `用户刚刚选择了生活场景：${scene}。这不是学生在解题作答，不要评价“这一步有价值”，不要追问对象、单位或关系。请立刻用这个场景做通融类比解释：先回到前一个知识点或问题，后台按三方程看清它“在什么场景中、被什么问题推动、最后稳定成什么结构”，并用ESD路径表达；外部用${scene}讲清“场景里的什么对应数学里的什么、关系怎样对应、操作怎样迁移”，再说明“哪里像、哪里不能完全一样”。不要再让用户选择场景，不要使用 SDE、画像、三方程、六路径、三原理等术语。`;
+  }
   if (!isKnowledgeAnalogyRequest(messages)) return "";
   if (hasFamiliarScene(latest)) {
-    return "当前用户在问知识理解，并且已经给出或暗示了熟悉的生活场景。请先在内部解构该知识的画像：它解决什么处境、核心对象是什么、关键关系是什么、推进路径是什么、最终稳定结构是什么、类比边界在哪里。外部回复不要说画像或 SDE 术语；先正面回答用户疑问，再用用户给出的生活场景做类比，最后指出哪里像、哪里不能完全当成一样。";
+    return "当前用户在问知识理解，并且已经给出或暗示了熟悉的生活场景。请先在内部按SDE知识画像处理：三方程看结果、发生、场域；六路径优先选ESD做类比；三原理检查用户可能卡在结构、过程、场景哪一处。外部回复不要说画像或SDE术语；先正面回答用户疑问，再用用户给出的生活场景做类比，最后指出哪里像、哪里不能完全当成一样。";
   }
-  return "当前用户在问知识理解。请先在内部解构该知识的画像：它解决什么处境、核心对象是什么、关键关系是什么、推进路径是什么、最终稳定结构是什么、容易误解在哪里。外部回复先用 1-2 句话正面回答核心疑问，然后邀请用户选择熟悉场景再做类比解释，给 3-5 个选项，例如：A 买东西，B 做饭，C 排队/坐地铁，D 运动/游戏，E 分东西/搭积木。不要直接长篇讲概念，不要使用 SDE、画像、纠缠、差异、显露等术语。";
+  return "当前用户在问知识理解或要求类比解释。请先在内部按SDE知识画像处理：三方程看清“在什么场景中、被什么问题推动、稳定成什么结构”；六路径优先选ESD，用生活场景唤醒理解；三原理检查用户可能需要补场景、补结构还是补路径。外部回复不要先让用户选场景；请自动选择一个最贴切、最常见的日常场景直接类比解释。优先从买东西、做饭、排队/坐地铁、运动/游戏、分东西/搭积木中选择。结构：1-2 句话正面回答核心疑问；然后说“我用……来比方”；接着对应对象、关系、变化路径；最后指出哪里像、哪里不能完全一样。结尾可以轻轻补一句“如果你更熟悉别的场景，我也可以换一个比方”。不要使用 SDE、画像、三方程、六路径、三原理、纠缠、差异、显露等术语。";
 }
 
 function needsChoiceScaffold(messages) {
@@ -819,7 +847,7 @@ function needsChoiceScaffold(messages) {
   const recent = historyText(messages, 8);
   const userTurns = messages.filter(message => message.role === "user").length;
   if (userTurns < 2) return false;
-  if (isDirectUserQuestion(messages) || isPracticeRequest(messages)) return false;
+  if (isDirectUserQuestion(messages) || isPracticeRequest(messages) || isKnowledgeAnalogyRequest(messages) || isAnalogySceneChoice(messages)) return false;
   return /不知道|不会|不懂|不确定|没思路|卡住|随便|蒙|可能|应该|前面|后面|最后|只会|不标准|漏了|少答|没答完|只回答/.test(latest)
     || /不对|错了|偏了|漏掉|没回答最后|无意义重复|模板|绕圈|继续卡/.test(recent);
 }
@@ -832,7 +860,7 @@ function choiceScaffoldLine(messages) {
 function studentGapLine(messages) {
   const latest = latestUserText(messages);
   const userTurns = messages.filter(message => message.role === "user").length;
-  if (userTurns <= 1 || isDirectUserQuestion(messages) || isPracticeRequest(messages)) return "";
+  if (userTurns <= 1 || isDirectUserQuestion(messages) || isPracticeRequest(messages) || isKnowledgeAnalogyRequest(messages) || isAnalogySceneChoice(messages)) return "";
   const hints = [];
   if (/不知道|不会|不懂|看不懂|没思路|题目看不懂|条件|对象|单位/.test(latest)) {
     hints.push("学生可能缺少先备经验或对象关系没有连上：先补对象、单位、图形或已知条件，不要直接推进计算。");
