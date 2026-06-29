@@ -5,6 +5,7 @@ const crypto = require("crypto");
 
 const PORT = Number(process.env.PORT || 8787);
 const ROOT = __dirname;
+const APP_VERSION = "sde-knowledge-20260629-analogy-fix";
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || "";
 const DEEPSEEK_BASE_URL = (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com").replace(/\/$/, "");
 const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || "deepseek-v4-pro";
@@ -899,11 +900,12 @@ function practiceRequestLine(messages) {
 
 function activeProblemText(messages) {
   const latest = latestUserText(messages);
+  if (isKnowledgeAnalogyRequest(messages) || isAnalogySceneChoice(messages)) return "";
   if (!latest || isPracticeRequest(messages) || isNewProblemInput(latest)) return "";
   const assistant = [...messages].reverse()
     .find(message => message.role === "assistant" && /问|多少|几|？|\?/.test(deepSeekMessageText(message)));
   const text = deepSeekMessageText(assistant);
-  if (!text || /你好|当前试用|新的对话已开启/.test(text)) return "";
+  if (!text || /你好|嗨|当前试用|新的对话已开启|你现在有想/.test(text)) return "";
   return text.slice(0, 1200);
 }
 
@@ -924,6 +926,18 @@ function activeProblemLine(messages) {
 function structureFollowupLine(messages) {
   if (!needsStructureReveal(messages)) return "";
   return "当前学生表示不能复述结构。不要继续追问同一句话；请先揭示这道题背后的结构：对象是什么，单位/标准是什么，关系模型是什么，目标怎样由关系推出。然后出一道同结构练习题，必须完整更换场景，不能只换数字。例：鸡兔同笼可换成两轮车和三轮车。";
+}
+
+function fallbackKnowledgeAnalogyReply(messages) {
+  const latest = latestUserText(messages);
+  const scene = hasFamiliarScene(latest) && /做饭/.test(latest) ? "做饭" : "分东西";
+  if (/分数|整体单位|单位1|单位一/.test(latest)) {
+    if (scene === "做饭") {
+      return "你问的是：为什么分数一定要先确定“整体单位”。\n\n我用做饭来比方。1/2 就像“半份配方”，但半份到底是多少，要先知道原来那一整份配方是什么：一整锅汤的一半，和一小碗汤的一半，数量完全不一样。\n\n所以分数里的分母、分子不是孤零零的数，它们都依赖一个“整份”。先确定整份，1/2、3/4 才有具体意义。\n\n哪里像：做饭先定一整份配方，数学里先定单位1。哪里不完全一样：做饭会受锅、人数、口味影响，数学里的整体单位一旦确定，关系就更稳定。";
+    }
+    return "你问的是：为什么分数一定要先确定“整体单位”。\n\n我用分东西来比方。说“拿走一半”之前，必须先知道是“一半苹果”“一半蛋糕”，还是“一半箱书”。如果整体不同，同样是 1/2，实际数量可能完全不同。\n\n所以分数不是只看分子分母，还要先看它是哪个整体的几分之几。";
+  }
+  return "你问的是这个知识该怎么用生活场景来理解。\n\n我先用一个最普通的场景来比方：先看场景里有哪些东西，再看它们之间保持什么关系，最后看我们要做什么操作。数学里的概念、公式或方法，也不是凭空来的，而是为了把这种稳定关系表达清楚。\n\n哪里像：生活场景帮助我们看见对象和关系。哪里不完全一样：数学会把生活里的细节压缩掉，只保留最稳定、最可迁移的关系。";
 }
 
 function shouldShowLocalDiagram(messages, profile = {}) {
@@ -1159,6 +1173,14 @@ function isLikelyIncomplete(text) {
 
 function trimHeuristicReply(text, messages, profile = {}) {
   const value = String(text || "").trim();
+  if (isKnowledgeAnalogyRequest(messages) || isAnalogySceneChoice(messages)) {
+    if (!value) return fallbackKnowledgeAnalogyReply(messages);
+    return value.length > 1200 ? `${value.slice(0, 1200)}。` : value;
+  }
+  if (isDirectUserQuestion(messages)) {
+    if (!value) return directQuestionFallback(messages);
+    return value.length > 1200 ? `${value.slice(0, 1200)}。` : value;
+  }
   if (profile?.mode === "讲解模式") {
     if (isLikelyIncomplete(value)) return fallbackTeachingReply(messages, profile);
     return value;
@@ -2007,6 +2029,14 @@ async function handleStt(req, res) {
 
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
+  if (req.method === "GET" && url.pathname === "/version") {
+    sendJson(res, 200, {
+      version: APP_VERSION,
+      chatLimitPerDay: DAILY_LIMIT,
+      deployedAt: "2026-06-29"
+    });
+    return;
+  }
   if (req.method === "POST" && req.url === "/api/register") {
     handleRegister(req, res);
     return;
