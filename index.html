@@ -347,6 +347,49 @@
       border-radius: 8px;
       border: 1px solid var(--line);
     }
+    .image-workflow {
+      flex: 1;
+      min-width: 0;
+      display: grid;
+      gap: 8px;
+    }
+    .image-workflow-title {
+      font-weight: 800;
+      font-size: 13px;
+      color: #344054;
+    }
+    .image-steps {
+      display: grid;
+      gap: 4px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+    .image-steps li {
+      display: grid;
+      grid-template-columns: 46px 1fr;
+      gap: 6px;
+      align-items: start;
+    }
+    .image-steps span {
+      display: inline-grid;
+      place-items: center;
+      border-radius: 999px;
+      background: #eef8f6;
+      color: var(--teal);
+      font-weight: 800;
+      font-size: 11px;
+      padding: 2px 6px;
+      white-space: nowrap;
+    }
+    .image-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
     .visual {
       min-height: 0;
       display: grid;
@@ -394,6 +437,62 @@
       width: 100%;
       height: auto;
       display: block;
+    }
+    .structure-chain {
+      display: grid;
+      gap: 10px;
+      margin-top: 8px;
+    }
+    .structure-item {
+      display: grid;
+      grid-template-columns: 54px 1fr;
+      gap: 10px;
+      align-items: start;
+      position: relative;
+      padding-bottom: 10px;
+    }
+    .structure-item:not(:last-child)::after {
+      content: "";
+      position: absolute;
+      left: 26px;
+      top: 43px;
+      bottom: -7px;
+      width: 2px;
+      background: #d0d5dd;
+    }
+    .structure-badge {
+      width: 54px;
+      min-height: 34px;
+      border-radius: 999px;
+      display: grid;
+      place-items: center;
+      border: 1px solid #b9e3dc;
+      background: #eef8f6;
+      color: var(--teal);
+      font-size: 12px;
+      font-weight: 900;
+      z-index: 1;
+    }
+    .structure-box {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      padding: 9px 10px;
+      min-width: 0;
+      line-height: 1.45;
+    }
+    .structure-box strong {
+      display: block;
+      margin-bottom: 4px;
+      color: #1f2937;
+      font-size: 13px;
+      overflow-wrap: anywhere;
+    }
+    .structure-box small {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      overflow-wrap: anywhere;
     }
     .diagram-node,
     .diagram-edge,
@@ -685,17 +784,23 @@
         <div class="messages" id="messages"></div>
         <div class="preview" id="imagePreview">
           <img id="previewImage" alt="题目图片预览" />
-          <div>
-            <div class="small" id="previewText">已选择题目图片</div>
-            <button class="btn" id="recognizeImage">识别并提问</button>
-            <button class="btn" id="clearImage">清除</button>
+          <div class="image-workflow">
+            <div class="image-workflow-title" id="previewText">题图已准备好</div>
+            <ol class="image-steps">
+              <li><span>第1步</span><div>可选：先在下面输入框补充说明，例如“只做第3小问”“图中AB是切线”。</div></li>
+              <li><span>第2步</span><div>点下面按钮，系统会把题图和补充说明一起识别并开始提问。</div></li>
+            </ol>
+            <div class="image-actions">
+              <button class="btn primary" id="recognizeImage">开始识别并提问</button>
+              <button class="btn" id="clearImage">清除题图</button>
+            </div>
           </div>
         </div>
         <div class="composer">
           <label class="btn file-btn">上传题图
             <input id="imageInput" type="file" accept="image/*" />
           </label>
-          <textarea id="question" placeholder="输入题目，或直接 Ctrl+V 粘贴题目截图。上传题图后，也可以补充：只做第3小问、图中AB是切线等。"></textarea>
+          <textarea id="question" placeholder="输入题目文字；如果已上传题图，这里只写补充说明，例如：只做第3小问、图中AB是切线。"></textarea>
           <button class="btn voice-btn" id="voiceInput">语音输入</button>
           <button class="btn primary" id="send">发送</button>
         </div>
@@ -1138,7 +1243,7 @@
       } finally {
         voiceBaseText = "";
         voiceLiveText = "";
-        document.querySelector("#question").placeholder = "输入题目，或直接 Ctrl+V 粘贴题目截图。";
+        document.querySelector("#question").placeholder = "输入题目文字；如果已上传题图，这里只写补充说明，例如：只做第3小问、图中AB是切线。";
       }
     }
 
@@ -1192,7 +1297,7 @@
       };
       recognition.onerror = event => {
         setListening(false);
-        document.querySelector("#question").placeholder = "输入题目，或直接 Ctrl+V 粘贴题目截图。";
+        document.querySelector("#question").placeholder = "输入题目文字；如果已上传题图，这里只写补充说明，例如：只做第3小问、图中AB是切线。";
         if (voiceRecording) {
           stopCloudVoiceInput();
         } else {
@@ -1210,7 +1315,7 @@
         if (text) setQuestionDraft(text);
         voiceBaseText = "";
         voiceLiveText = "";
-        document.querySelector("#question").placeholder = "输入题目，或直接 Ctrl+V 粘贴题目截图。";
+        document.querySelector("#question").placeholder = "输入题目文字；如果已上传题图，这里只写补充说明，例如：只做第3小问、图中AB是切线。";
       };
       try {
         recognition.start();
@@ -1360,73 +1465,42 @@
         return;
       }
 
-      const nodes = diagram.nodes.slice(0, 9);
-      const edges = Array.isArray(diagram.edges) ? diagram.edges.slice(0, 10) : [];
-      const nodeOrder = new Map(nodes.map((node, index) => [node.id, index]));
-      const cols = nodes.length <= 4 ? 1 : 2;
-      const nodeW = cols === 1 ? 220 : 132;
-      const nodeH = 50;
-      const gapX = 28;
-      const gapY = 30;
-      const startX = cols === 1 ? 50 : 26;
-      const startY = 28;
-      const positions = {};
-
-      nodes.forEach((node, index) => {
-        const col = cols === 1 ? 0 : index % 2;
-        const row = cols === 1 ? index : Math.floor(index / 2);
-        positions[node.id] = {
-          x: startX + col * (nodeW + gapX),
-          y: startY + row * (nodeH + gapY)
-        };
+      const typeNames = {
+        given: "条件",
+        goal: "目标",
+        relation: "关系",
+        step: "步骤",
+        result: "结果",
+        check: "核对"
+      };
+      const nodes = diagram.nodes.slice(0, 6);
+      const edges = Array.isArray(diagram.edges) ? diagram.edges : [];
+      const edgeLabelByTarget = new Map();
+      edges.forEach(edge => {
+        if (edge?.to && edge?.label && !edgeLabelByTarget.has(edge.to)) {
+          edgeLabelByTarget.set(edge.to, edge.label);
+        }
       });
 
-      const rows = cols === 1 ? nodes.length : Math.ceil(nodes.length / 2);
-      const height = Math.max(190, startY * 2 + rows * nodeH + (rows - 1) * gapY);
-
-      const edgeSvg = edges.map((edge, index) => {
-        const from = positions[edge.from];
-        const to = positions[edge.to];
-        if (!from || !to) return "";
-        const fromIndex = nodeOrder.get(edge.from) ?? 0;
-        const toIndex = nodeOrder.get(edge.to) ?? fromIndex + 1;
-        const delay = Math.max(fromIndex, toIndex) * 420 + index * 90 + 180;
-        const x1 = from.x + nodeW / 2;
-        const y1 = from.y + nodeH;
-        const x2 = to.x + nodeW / 2;
-        const y2 = to.y;
-        const midY = (y1 + y2) / 2;
-        return `
-          <path class="diagram-edge" pathLength="1" style="--delay:${delay}ms" d="M${x1} ${y1} C${x1} ${midY}, ${x2} ${midY}, ${x2} ${y2}" fill="none" stroke="#98a2b3" stroke-width="1.7" marker-end="url(#arrow)"/>
-          ${edge.label ? `<text class="diagram-edge-label" style="--delay:${delay + 220}ms" x="${(x1 + x2) / 2}" y="${midY - 4}" text-anchor="middle" font-size="10" fill="#667085">${escapeHtml(edge.label)}</text>` : ""}
-        `;
-      }).join("");
-
-      const nodeSvg = nodes.map((node, index) => {
-        const pos = positions[node.id];
-        const [fill, stroke] = nodeStyle(node.type);
-        const delay = index * 420;
+      const chainHtml = nodes.map((node, index) => {
+        const type = typeNames[node.type] || `第${index + 1}步`;
+        const edgeLabel = edgeLabelByTarget.get(node.id);
         const focusClass = node.type === "goal" || node.type === "result" ? " diagram-focus" : "";
         return `
-          <g class="diagram-node${focusClass}" style="--delay:${delay}ms">
-            <rect x="${pos.x}" y="${pos.y}" width="${nodeW}" height="${nodeH}" rx="8" fill="${fill}" stroke="${stroke}" stroke-width="1.6"/>
-            <text x="${pos.x + nodeW / 2}" y="${pos.y + 30}" text-anchor="middle" font-size="12" fill="#1f2937">${escapeHtml(node.label)}</text>
-          </g>
+          <div class="structure-item diagram-node${focusClass}" style="--delay:${index * 360}ms">
+            <div class="structure-badge">${escapeHtml(type)}</div>
+            <div class="structure-box">
+              <strong>${escapeHtml(node.label || type)}</strong>
+              <small>${edgeLabel ? `由上一步得到：${escapeHtml(edgeLabel)}` : (index === 0 ? "先看清这一层，不急着算。" : "顺着上一层继续推进。")}</small>
+            </div>
+          </div>
         `;
       }).join("");
 
       visualCard(
         escapeHtml(diagram.title || "解题结构图"),
-        `<svg viewBox="0 0 320 ${height}" role="img" aria-label="解题结构图">
-          <defs>
-            <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
-              <path d="M0,0 L8,4 L0,8 z" fill="#98a2b3"></path>
-            </marker>
-          </defs>
-          ${edgeSvg}
-          ${nodeSvg}
-        </svg>`,
-        "这张动图会按顺序展示：先出现对象和条件，再连上关键关系，最后落到目标结果。",
+        `<div class="structure-chain" role="list" aria-label="解题结构链">${chainHtml}</div>`,
+        "这张图改为按顺序展示：先看条件，再看关系，再看步骤，最后落到目标。复杂题先求清楚，不追求节点多。",
         `<button class="btn" type="button" data-replay-diagram>重新播放</button>`
       );
     }
@@ -1666,6 +1740,9 @@
           : `【图片识别结果】\n${recognizedText}`;
         document.querySelector("#question").value = "";
         await send(combinedText, { displayText: hint ? "我上传了一张题目图片，并补充了说明" : "我上传了一张题目图片" });
+        selectedImageData = "";
+        previewImage.removeAttribute("src");
+        imagePreview.classList.remove("show");
         return true;
       } catch {
         loading.remove();
@@ -1686,7 +1763,7 @@
       selectedImageData = await fileToDataUrl(file);
       previewImage.src = selectedImageData;
       imagePreview.classList.add("show");
-      document.querySelector("#previewText").textContent = `已${source}题目图片。可以先在输入框补充说明，例如“只做第3小问”“图中AB是切线”，再点“识别并提问”。`;
+      document.querySelector("#previewText").textContent = `已${source}题图：可先补充说明，再点“开始识别并提问”`;
       return true;
     }
 
@@ -1760,6 +1837,10 @@
     });
 
     document.querySelector("#send").addEventListener("click", () => {
+      if (selectedImageData) {
+        recognizeSelectedImage();
+        return;
+      }
       const box = document.querySelector("#question");
       const text = box.value.trim();
       if (!text) return;
@@ -1772,6 +1853,10 @@
     document.querySelector("#question").addEventListener("keydown", event => {
       if (event.key !== "Enter" || event.shiftKey || event.isComposing) return;
       event.preventDefault();
+      if (selectedImageData) {
+        recognizeSelectedImage();
+        return;
+      }
       const box = event.currentTarget;
       const text = box.value.trim();
       if (!text) return;
