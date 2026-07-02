@@ -716,6 +716,10 @@
     let currentConversationId = "";
     let conversations = [];
     let currentAudio = null;
+    let currentAudioKey = "";
+    let currentAudioButton = null;
+    let currentSpeechKey = "";
+    let currentSpeechButton = null;
     const ttsAudioCache = new Map();
     let authToken = localStorage.getItem("math_agent_token") || "";
     let currentUser = null;
@@ -787,12 +791,14 @@
         fastSpeakButton.className = "msg-speak fast";
         fastSpeakButton.type = "button";
         fastSpeakButton.textContent = "快速朗读";
-        fastSpeakButton.addEventListener("click", () => browserSpeakText(normalized));
+        fastSpeakButton.dataset.label = fastSpeakButton.textContent;
+        fastSpeakButton.addEventListener("click", () => browserSpeakText(normalized, fastSpeakButton));
         div.appendChild(fastSpeakButton);
         const speakButton = document.createElement("button");
         speakButton.className = "msg-speak";
         speakButton.type = "button";
         speakButton.textContent = "AI人声";
+        speakButton.dataset.label = speakButton.textContent;
         speakButton.addEventListener("click", () => speakText(normalized, speakButton));
         div.appendChild(speakButton);
       }
@@ -821,31 +827,74 @@
         .trim();
     }
 
-    function browserSpeakText(text) {
+    function resetSpeakButton(button) {
+      if (!button) return;
+      button.disabled = false;
+      button.textContent = button.dataset.label || "朗读";
+    }
+
+    function stopCurrentReading() {
+      if (currentAudio) {
+        currentAudio.pause();
+        currentAudio.currentTime = 0;
+        currentAudio = null;
+      }
+      window.speechSynthesis?.cancel?.();
+      resetSpeakButton(currentAudioButton);
+      resetSpeakButton(currentSpeechButton);
+      currentAudioKey = "";
+      currentSpeechKey = "";
+      currentAudioButton = null;
+      currentSpeechButton = null;
+    }
+
+    function browserSpeakText(text, button) {
       if (!("speechSynthesis" in window)) {
         addMessage("当前浏览器不支持朗读功能，可以换 Chrome 或 Edge 再试。", "error");
         return;
       }
-      window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(normalizeMathText(text));
+      const cleanText = normalizeMathText(text);
+      const speechKey = cleanText.slice(0, 700);
+      if (currentSpeechKey === speechKey && window.speechSynthesis.speaking) {
+        stopCurrentReading();
+        return;
+      }
+      stopCurrentReading();
+      currentSpeechKey = speechKey;
+      currentSpeechButton = button || null;
+      if (button) button.textContent = "停止朗读";
+      const utterance = new SpeechSynthesisUtterance(cleanText);
       utterance.lang = "zh-CN";
       utterance.rate = 0.92;
       utterance.pitch = 1;
+      utterance.onend = () => {
+        resetSpeakButton(button);
+        if (currentSpeechKey === speechKey) {
+          currentSpeechKey = "";
+          currentSpeechButton = null;
+        }
+      };
+      utterance.onerror = utterance.onend;
       window.speechSynthesis.speak(utterance);
     }
 
     async function speakText(text, button) {
       const cleanText = normalizeMathText(text);
-      const previousLabel = button?.textContent || "AI朗读";
       const cacheKey = cleanText.slice(0, 700);
+      if (currentAudioKey === cacheKey && currentAudio && !currentAudio.paused) {
+        stopCurrentReading();
+        return;
+      }
+      stopCurrentReading();
+      currentAudioKey = cacheKey;
+      currentAudioButton = button || null;
       try {
-        if (currentAudio) {
-          currentAudio.pause();
-          currentAudio.currentTime = 0;
-        }
         if (ttsAudioCache.has(cacheKey)) {
           const cached = ttsAudioCache.get(cacheKey);
           currentAudio = new Audio(cached);
+          if (button) button.textContent = "停止朗读";
+          currentAudio.onended = () => stopCurrentReading();
+          currentAudio.onerror = () => browserSpeakText(cleanText, button);
           await currentAudio.play();
           return;
         }
@@ -859,24 +908,24 @@
           body: JSON.stringify({ text: cacheKey })
         });
         if (!res.ok) {
-          browserSpeakText(cleanText);
+          browserSpeakText(cleanText, button);
           return;
         }
         const audioBlob = await res.blob();
         const audioUrl = URL.createObjectURL(audioBlob);
         ttsAudioCache.set(cacheKey, audioUrl);
         currentAudio = new Audio(audioUrl);
+        if (button) {
+          button.disabled = false;
+          button.textContent = "停止朗读";
+        }
+        currentAudio.onended = () => stopCurrentReading();
         currentAudio.onerror = () => {
-          browserSpeakText(cleanText);
+          browserSpeakText(cleanText, button);
         };
         await currentAudio.play();
       } catch {
-        browserSpeakText(cleanText);
-      } finally {
-        if (button) {
-          button.disabled = false;
-          button.textContent = previousLabel;
-        }
+        browserSpeakText(cleanText, button);
       }
     }
 
