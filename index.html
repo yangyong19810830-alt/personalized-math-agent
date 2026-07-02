@@ -1218,10 +1218,6 @@
         drawDefault();
         return;
       }
-      if (isGeometryDiagram(diagram)) {
-        renderGeometryDemo(diagram);
-        return;
-      }
 
       const nodes = diagram.nodes.slice(0, 9);
       const edges = Array.isArray(diagram.edges) ? diagram.edges.slice(0, 10) : [];

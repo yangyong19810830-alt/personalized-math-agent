@@ -5,7 +5,7 @@ const crypto = require("crypto");
 
 const PORT = Number(process.env.PORT || 8787);
 const ROOT = __dirname;
-const APP_VERSION = "sde-knowledge-20260702-openai-vision";
+const APP_VERSION = "sde-knowledge-20260702-openai-vision-diagram";
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || "";
 const DEEPSEEK_BASE_URL = (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com").replace(/\/$/, "");
 const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || "deepseek-v4-pro";
@@ -20,6 +20,8 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
 const OPENAI_BASE_URL = (process.env.OPENAI_BASE_URL || "https://api.openai.com/v1").replace(/\/$/, "");
 const OPENAI_VISION_MODEL = process.env.OPENAI_VISION_MODEL || process.env.OPENAI_MODEL || "gpt-5.5";
 const OPENAI_VISION_TIMEOUT_MS = Number(process.env.OPENAI_VISION_TIMEOUT_MS || 20000);
+const OPENAI_DIAGRAM_MODEL = process.env.OPENAI_DIAGRAM_MODEL || OPENAI_VISION_MODEL;
+const OPENAI_DIAGRAM_TIMEOUT_MS = Number(process.env.OPENAI_DIAGRAM_TIMEOUT_MS || 12000);
 const VISION_API_KEY = process.env.VISION_API_KEY || "";
 const VISION_PROVIDER = (process.env.VISION_PROVIDER || "openai").toLowerCase();
 const VISION_BASE_URL = (process.env.VISION_BASE_URL || "https://open.bigmodel.cn/api/paas/v4").replace(/\/$/, "");
@@ -1093,6 +1095,71 @@ function buildLocalDiagram(messages, answer = "") {
   };
 }
 
+function diagramPromptText(messages, answer, profile = {}) {
+  return [
+    `回复模式：${profile?.mode || "启发模式"}`,
+    "最近对话：",
+    historyText(messages, 8),
+    "智能体刚生成的回复：",
+    String(answer || "").slice(0, 1600)
+  ].join("\n\n");
+}
+
+function normalizeOpenAIDiagramResult(raw) {
+  const parsed = extractJsonObject(raw);
+  if (!parsed || typeof parsed !== "object") return null;
+  const diagram = normalizeDiagram(parsed.diagram || parsed);
+  if (!diagram?.nodes?.length) return null;
+  return diagram;
+}
+
+async function callOpenAIDiagram(messages, answer, profile = {}) {
+  if (!OPENAI_API_KEY) return null;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), OPENAI_DIAGRAM_TIMEOUT_MS);
+  let response;
+  try {
+    response = await fetch(`${OPENAI_BASE_URL}/responses`, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${OPENAI_API_KEY}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        model: OPENAI_DIAGRAM_MODEL,
+        instructions: [
+          "你是数学解题结构图规划器，只输出 JSON，不输出 Markdown。",
+          "你的任务不是画原题，而是把当前题目和回复里的关系转成结构图节点和边。",
+          "尤其是几何题：不要凭空生成三角形、圆、角标、平行、垂直、相等、切线等原题没有明确给出的图形关系；只画“读图对象、明确条件、目标关系、可尝试的桥梁、下一步核对”。",
+          "如果题目图形信息不足，结构图要诚实显示“核对原图标注/补充条件”，不要假装已经知道完整图形。",
+          "节点顺序必须贴合学生理解：对象/已知条件 -> 单位或标准 -> 关键关系 -> 解题动作 -> 目标或检查。",
+          "返回格式：{\"diagramAction\":\"show\",\"diagram\":{\"title\":\"...\",\"demoType\":\"\",\"nodes\":[{\"id\":\"n1\",\"label\":\"...\",\"type\":\"given|relation|step|goal|check|result\"}],\"edges\":[{\"from\":\"n1\",\"to\":\"n2\",\"label\":\"...\"}],\"note\":\"...\"}}。",
+          "节点 4-7 个，边 3-8 条，标签短，不要出现 SDE、三方程、六路径、三原理等术语。"
+        ].join("\n"),
+        max_output_tokens: 900,
+        input: [
+          {
+            role: "user",
+            content: [
+              { type: "input_text", text: diagramPromptText(messages, answer, profile) }
+            ]
+          }
+        ]
+      }),
+      signal: controller.signal
+    });
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) return null;
+  return normalizeOpenAIDiagramResult(extractOpenAIResponseText(data));
+}
+
 function fallbackTeachingReply(messages, profile = {}) {
   const text = latestUserText(messages);
   const allText = historyText(messages, 10);
@@ -1363,10 +1430,11 @@ async function callDeepSeek(messages, profile) {
   const parsed = extractJsonObject(raw);
   if (!parsed || typeof parsed !== "object") {
     const showDiagram = shouldShowLocalDiagram(messages, profile);
+    const aiDiagram = showDiagram ? await callOpenAIDiagram(messages, raw, profile) : null;
     return {
       answer: raw,
       diagramAction: showDiagram ? "show" : "hold",
-      diagram: showDiagram ? buildLocalDiagram(messages, raw) : null,
+      diagram: showDiagram ? (aiDiagram || buildLocalDiagram(messages, raw)) : null,
       modelTier: usedConfig.tier,
       model: usedConfig.model
     };
@@ -1375,10 +1443,12 @@ async function callDeepSeek(messages, profile) {
   const action = ["hold", "show", "update"].includes(parsed.diagramAction) ? parsed.diagramAction : "hold";
   const normalizedDiagram = action === "hold" ? null : normalizeDiagram(parsed.diagram);
   const finalAction = action === "hold" && shouldForceDiagram ? "show" : action;
+  const answer = String(parsed.answer || raw).trim();
+  const aiDiagram = finalAction === "hold" ? null : await callOpenAIDiagram(messages, answer, profile);
   return {
-    answer: String(parsed.answer || raw).trim(),
+    answer,
     diagramAction: finalAction,
-    diagram: normalizedDiagram?.nodes?.length ? normalizedDiagram : (finalAction === "hold" ? null : buildLocalDiagram(messages, parsed.answer || raw)),
+    diagram: aiDiagram || (normalizedDiagram?.nodes?.length ? normalizedDiagram : (finalAction === "hold" ? null : buildLocalDiagram(messages, answer))),
     modelTier: usedConfig.tier,
     model: usedConfig.model
   };
@@ -2110,7 +2180,8 @@ const server = http.createServer((req, res) => {
       chatLimitPerDay: DAILY_LIMIT,
       deployedAt: "2026-07-02",
       visionProvider: VISION_PROVIDER,
-      openaiVisionModel: OPENAI_VISION_MODEL
+      openaiVisionModel: OPENAI_VISION_MODEL,
+      openaiDiagramModel: OPENAI_DIAGRAM_MODEL
     });
     return;
   }
