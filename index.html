@@ -573,7 +573,20 @@
             </select>
           </div>
 
+          <div class="field">
+            <label for="planSpan">规划周期</label>
+            <select id="planSpan">
+              <option>今天</option>
+              <option>7天</option>
+              <option>30天</option>
+              <option>一学期</option>
+              <option>长期路线</option>
+            </select>
+          </div>
+
           <button class="btn primary full" id="plan">安排今天的学习</button>
+          <button class="btn full" id="systemPlan">制定系统学习规划</button>
+          <button class="btn full" id="startLesson">开始知识点学习</button>
 
           <div class="conversation-tools">
             <button class="btn full" id="newConversation">新对话</button>
@@ -582,10 +595,10 @@
           </div>
 
           <div class="steps">
-            <div class="step"><strong>1. 找对象</strong>先看题里有哪些人、物、数、图形或数据。</div>
-            <div class="step"><strong>2. 定标准</strong>分数看单位 1，倍数看一倍，变化题看每一步标准。</div>
-            <div class="step"><strong>3. 搭关系</strong>先说清谁和谁比较、变化或保持不变，再计算。</div>
-            <div class="step"><strong>4. 会迁移</strong>做完后能说一句结构总结，并换一道同结构题。</div>
+            <div class="step"><strong>1. 规划路线</strong>按阶段、目标和状态安排知识点顺序。</div>
+            <div class="step"><strong>2. 学知识点</strong>先讲为什么学，再看结构和适用场景。</div>
+            <div class="step"><strong>3. 做练习</strong>基础题、迁移题、表达题分层推进。</div>
+            <div class="step"><strong>4. 会迁移</strong>做完后复述结构，并换一道同结构题。</div>
           </div>
         </div>
       </aside>
@@ -653,7 +666,8 @@
         stage,
         mode: replyMode,
         goal: document.querySelector("#goal").value,
-        state: document.querySelector("#state").value
+        state: document.querySelector("#state").value,
+        planSpan: document.querySelector("#planSpan").value
       };
     }
 
@@ -1386,7 +1400,7 @@
         history = [];
         messages.innerHTML = "";
         drawDefault();
-        addMessage("新的对话已开启。你可以发一道题，或让我安排今天的学习。");
+        addMessage("新的对话已开启。你可以发一道题，也可以让我制定系统学习规划、安排今天学习，或开始一个知识点小课。");
         await loadConversations();
       } catch {
         addMessage("新建对话失败，请稍后再试。", "error");
@@ -1408,7 +1422,7 @@
           addMessage(`你好，${currentUser.name}。这个账号的试用期已经结束，请联系老师或管理员获取新的试用资格。`, "error");
         } else {
           const trialDays = currentUser.trial?.remainingDays ? `当前试用剩余 ${currentUser.trial.remainingDays} 天。` : "";
-          addMessage(`你好，${currentUser.name}。${trialDays}你可以发一道题，也可以让我安排今天的学习。我会先定位卡点，再给合适提示，帮助学生形成稳定方法。`);
+        addMessage(`你好，${currentUser.name}。${trialDays}你可以发一道题，也可以让我制定系统学习规划、安排今天的学习，或直接开始一节知识点学习。我会先定位状态，再给路线、知识点和练习。`);
         }
       }
       if (currentUser) loadConversations();
@@ -1561,7 +1575,7 @@
           method: "POST",
           headers: { "Content-Type": "application/json", ...authHeaders() },
           body: JSON.stringify({
-            profile: profile(),
+            profile: { ...profile(), intent: options.intent || "" },
             messages: history,
             conversationId: currentConversationId,
             displayText: options.displayText || ""
@@ -1635,7 +1649,15 @@
     installAppButton.addEventListener("click", installApp);
 
     document.querySelector("#plan").addEventListener("click", () => {
-      send("请根据我的阶段、目标和当前状态，安排今天的数学学习。");
+      send("请根据我的阶段、目标和当前状态，安排今天的数学学习。", { intent: "daily_plan" });
+    });
+
+    document.querySelector("#systemPlan").addEventListener("click", () => {
+      send("请根据我的阶段、目标、当前状态和规划周期，制定一份系统化数学学习规划，包含学习路线、知识点顺序、练习安排和家长观察建议。", { intent: "system_plan" });
+    });
+
+    document.querySelector("#startLesson").addEventListener("click", () => {
+      send("请根据我的学习画像，选择一个最适合现在学习的数学知识点，开始一节知识点学习，并配套少量练习。", { intent: "lesson_start" });
     });
 
     document.querySelector("#imageInput").addEventListener("change", async event => {
