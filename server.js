@@ -5,7 +5,7 @@ const crypto = require("crypto");
 
 const PORT = Number(process.env.PORT || 8787);
 const ROOT = __dirname;
-const APP_VERSION = "sde-knowledge-20260629-analogy-fix";
+const APP_VERSION = "sde-knowledge-20260702-openai-vision";
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || "";
 const DEEPSEEK_BASE_URL = (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com").replace(/\/$/, "");
 const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || "deepseek-v4-pro";
@@ -16,8 +16,12 @@ const DEEPSEEK_PRO_MODEL = process.env.DEEPSEEK_PRO_MODEL || "deepseek-v4-pro";
 const DEEPSEEK_PRO_FALLBACK = String(process.env.DEEPSEEK_PRO_FALLBACK || "false").toLowerCase() === "true";
 const DEEPSEEK_TIMEOUT_MS = Number(process.env.DEEPSEEK_TIMEOUT_MS || 8500);
 const DEEPSEEK_HISTORY_LIMIT = Number(process.env.DEEPSEEK_HISTORY_LIMIT || 6);
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
+const OPENAI_BASE_URL = (process.env.OPENAI_BASE_URL || "https://api.openai.com/v1").replace(/\/$/, "");
+const OPENAI_VISION_MODEL = process.env.OPENAI_VISION_MODEL || process.env.OPENAI_MODEL || "gpt-5.5";
+const OPENAI_VISION_TIMEOUT_MS = Number(process.env.OPENAI_VISION_TIMEOUT_MS || 20000);
 const VISION_API_KEY = process.env.VISION_API_KEY || "";
-const VISION_PROVIDER = (process.env.VISION_PROVIDER || "zhipu").toLowerCase();
+const VISION_PROVIDER = (process.env.VISION_PROVIDER || "openai").toLowerCase();
 const VISION_BASE_URL = (process.env.VISION_BASE_URL || "https://open.bigmodel.cn/api/paas/v4").replace(/\/$/, "");
 const VISION_MODEL = process.env.VISION_MODEL || "glm-4v-plus-0111";
 const VISION_MAX_TOKENS = Number(process.env.VISION_MAX_TOKENS || 1800);
@@ -1381,6 +1385,18 @@ async function callDeepSeek(messages, profile) {
 }
 
 function visionProviderConfig(provider) {
+  if (provider === "openai") {
+    return {
+      provider,
+      apiKey: OPENAI_API_KEY,
+      baseUrl: OPENAI_BASE_URL,
+      model: OPENAI_VISION_MODEL,
+      temperature: null,
+      timeoutMs: OPENAI_VISION_TIMEOUT_MS,
+      useBareBase64: false,
+      endpoint: "responses"
+    };
+  }
   if (provider === "kimi") {
     return {
       provider,
@@ -1389,7 +1405,8 @@ function visionProviderConfig(provider) {
       model: KIMI_VISION_MODEL,
       temperature: 1,
       timeoutMs: KIMI_VISION_TIMEOUT_MS,
-      useBareBase64: false
+      useBareBase64: false,
+      endpoint: "chat"
     };
   }
   return {
@@ -1399,7 +1416,8 @@ function visionProviderConfig(provider) {
     model: VISION_MODEL,
     temperature: 0,
     timeoutMs: VISION_TIMEOUT_MS,
-    useBareBase64: true
+    useBareBase64: true,
+    endpoint: "chat"
   };
 }
 
@@ -1416,12 +1434,54 @@ function extractVisionText(data) {
   return deepSeekMessageText(message);
 }
 
+function extractOpenAIResponseText(data) {
+  if (typeof data?.output_text === "string" && data.output_text.trim()) {
+    return data.output_text.trim();
+  }
+  const parts = [];
+  for (const item of data?.output || []) {
+    for (const content of item?.content || []) {
+      if (typeof content?.text === "string") parts.push(content.text);
+      if (typeof content?.value === "string") parts.push(content.value);
+    }
+  }
+  return parts.join("").trim();
+}
+
+function visionProviderName(provider) {
+  if (provider === "openai") return "OpenAI";
+  if (provider === "kimi") return "Kimi";
+  return "智谱";
+}
+
+function buildVisionPrompt(hintPrompt) {
+  return [
+    "请完整识别这张数学题图片。如果是几何题，先读文字，再逐项描述图形：有哪些点和图形，哪些关系是明确标注的，哪些地方看不清。不要补充图片中没有标注的条件。",
+    hintPrompt
+  ].filter(Boolean).join("\n");
+}
+
+function buildVisionSystemPrompt() {
+  return [
+    "你是数学题目图片识别助手，尤其要谨慎处理几何图。",
+    "只负责识别和转写，不要解题，不要推理答案。",
+    "必须区分“看见的图形标注”和“你推测的关系”。禁止把未标注的垂直、平行、相等、角平分、中点、圆心、切线、全等、相似等关系当成已知。",
+    "如果图中某个点名、角标、线段标注、数字或符号看不清，写“看不清/不确定”，不要猜。",
+    "几何题必须按固定格式输出：题目文字；图形对象；图中明确标注的关系；需要求证/求解；不确定信息。",
+    "图形对象要尽量列出点、线段、射线、直线、圆、三角形、四边形及它们的连接关系。",
+    "明确标注的关系包括：平行、垂直、相等、角度、长度、切点、中点、圆心、共线、共圆、交点等。只写图中能看见的。",
+    "公式尽量转成学生可读的普通文本，例如 x >= -1、(a-2)/4，不要输出复杂 LaTeX 原码。"
+  ].join("\n");
+}
+
 async function callVisionWithProvider(image, provider, hint = "") {
   const config = visionProviderConfig(provider);
   if (!config.apiKey) {
-    throw new Error(provider === "kimi"
-      ? "还没有配置 KIMI_API_KEY"
-      : "还没有配置 VISION_API_KEY");
+    throw new Error(provider === "openai"
+      ? "还没有配置 OPENAI_API_KEY"
+      : provider === "kimi"
+        ? "还没有配置 KIMI_API_KEY"
+        : "还没有配置 VISION_API_KEY");
   }
 
   const imageForProvider = config.useBareBase64
@@ -1436,44 +1496,57 @@ async function callVisionWithProvider(image, provider, hint = "") {
   const timeout = setTimeout(() => controller.abort(), config.timeoutMs);
   let response;
   try {
-    response = await fetch(`${config.baseUrl}/chat/completions`, {
-    method: "POST",
-    headers: {
-      "Authorization": `Bearer ${config.apiKey}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      model: config.model,
-      temperature: config.temperature,
-      max_tokens: VISION_MAX_TOKENS,
-      messages: [
-        {
-          role: "system",
-          content: [
-            "你是数学题目图片识别助手，尤其要谨慎处理几何图。",
-            "只负责识别和转写，不要解题，不要推理答案。",
-            "必须区分“看见的图形标注”和“你推测的关系”。禁止把未标注的垂直、平行、相等、角平分、中点、圆心、切线、全等、相似等关系当成已知。",
-            "如果图中某个点名、角标、线段标注、数字或符号看不清，写“看不清/不确定”，不要猜。",
-            "几何题必须按固定格式输出：题目文字；图形对象；图中明确标注的关系；需要求证/求解；不确定信息。",
-            "图形对象要尽量列出点、线段、射线、直线、圆、三角形、四边形及它们的连接关系。",
-            "明确标注的关系包括：平行、垂直、相等、角度、长度、切点、中点、圆心、共线、共圆、交点等。只写图中能看见的。",
-            "公式尽量转成学生可读的普通文本，例如 x >= -1、(a-2)/4，不要输出复杂 LaTeX 原码。"
-          ].join("\n")
+    if (config.endpoint === "responses") {
+      response = await fetch(`${config.baseUrl}/responses`, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${config.apiKey}`,
+          "Content-Type": "application/json"
         },
-        {
-          role: "user",
-          content: [
-            { type: "text", text: ["请完整识别这张数学题图片。如果是几何题，先读文字，再逐项描述图形：有哪些点和图形，哪些关系是明确标注的，哪些地方看不清。不要补充图片中没有标注的条件。", hintPrompt].filter(Boolean).join("\n") },
-            { type: "image_url", image_url: { url: imageForProvider } }
+        body: JSON.stringify({
+          model: config.model,
+          instructions: buildVisionSystemPrompt(),
+          max_output_tokens: VISION_MAX_TOKENS,
+          input: [
+            {
+              role: "user",
+              content: [
+                { type: "input_text", text: buildVisionPrompt(hintPrompt) },
+                { type: "input_image", image_url: imageForProvider }
+              ]
+            }
           ]
-        }
-      ]
-    }),
-    signal: controller.signal
-    });
+        }),
+        signal: controller.signal
+      });
+    } else {
+      response = await fetch(`${config.baseUrl}/chat/completions`, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${config.apiKey}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          model: config.model,
+          temperature: config.temperature,
+          max_tokens: VISION_MAX_TOKENS,
+          messages: [
+            { role: "system", content: buildVisionSystemPrompt() },
+            {
+              role: "user",
+              content: [
+                { type: "text", text: buildVisionPrompt(hintPrompt) },
+                { type: "image_url", image_url: { url: imageForProvider } }
+              ]
+            }
+          ]
+        }),
+        signal: controller.signal
+      });
+    }
   } catch (error) {
     if (error.name === "AbortError") {
-      throw new Error(`${provider === "kimi" ? "Kimi" : "智谱"}图片识别超时`);
+      throw new Error(`${visionProviderName(provider)}图片识别超时`);
     }
     throw error;
   } finally {
@@ -1484,15 +1557,17 @@ async function callVisionWithProvider(image, provider, hint = "") {
   if (!response.ok) {
     throw new Error(data.error?.message || data.message || `图片识别 API 错误：${response.status}`);
   }
-  const text = extractVisionText(data);
-  if (!text) throw new Error(`${provider === "kimi" ? "Kimi" : "智谱"}图片识别结果为空`);
+  const text = config.endpoint === "responses" ? extractOpenAIResponseText(data) : extractVisionText(data);
+  if (!text) throw new Error(`${visionProviderName(provider)}图片识别结果为空`);
   return text;
 }
 
 async function callVision(image, hint = "") {
-  const providers = VISION_PROVIDER === "kimi"
-    ? ["kimi", ...(VISION_API_KEY ? ["zhipu"] : [])]
-    : ["zhipu"];
+  const providers = VISION_PROVIDER === "openai"
+    ? ["openai", ...(KIMI_API_KEY ? ["kimi"] : []), ...(VISION_API_KEY ? ["zhipu"] : [])]
+    : VISION_PROVIDER === "kimi"
+      ? ["kimi", ...(OPENAI_API_KEY ? ["openai"] : []), ...(VISION_API_KEY ? ["zhipu"] : [])]
+      : ["zhipu", ...(OPENAI_API_KEY ? ["openai"] : [])];
   let lastError = null;
 
   for (const provider of providers) {
@@ -1505,7 +1580,7 @@ async function callVision(image, hint = "") {
 
   const message = lastError?.message || "";
   if (/结果为空/.test(message)) {
-    throw new Error("图片识别结果为空。Kimi 未返回可用文字；可以换更清晰的图，或在 Render 同时保留智谱 VISION_API_KEY 作为快速兜底。");
+    throw new Error("图片识别结果为空。请换一张更清晰的图片，或补充输入题目文字；如果使用 OpenAI，请检查 OPENAI_API_KEY、OPENAI_VISION_MODEL 和账号权限。");
   }
   throw new Error(message || "图片识别失败");
 }
@@ -2033,7 +2108,9 @@ const server = http.createServer((req, res) => {
     sendJson(res, 200, {
       version: APP_VERSION,
       chatLimitPerDay: DAILY_LIMIT,
-      deployedAt: "2026-06-29"
+      deployedAt: "2026-07-02",
+      visionProvider: VISION_PROVIDER,
+      openaiVisionModel: OPENAI_VISION_MODEL
     });
     return;
   }
