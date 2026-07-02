@@ -165,6 +165,63 @@
       font-weight: 800;
     }
     .btn.full { width: 100%; }
+    .learning-actions {
+      display: grid;
+      gap: 8px;
+      margin: 14px 0 12px;
+    }
+    .learning-action-title {
+      color: #344054;
+      font-size: 13px;
+      font-weight: 800;
+    }
+    .action-btn {
+      width: 100%;
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 10px;
+      align-items: center;
+      text-align: left;
+      padding: 11px;
+    }
+    .action-btn.primary {
+      box-shadow: 0 8px 18px rgba(15, 118, 110, .18);
+    }
+    .action-badge {
+      width: 46px;
+      min-height: 34px;
+      border-radius: 7px;
+      display: grid;
+      place-items: center;
+      border: 1px solid #b9e3dc;
+      background: #eef8f6;
+      color: var(--teal);
+      font-size: 12px;
+      font-weight: 900;
+      line-height: 1.1;
+    }
+    .action-btn.primary .action-badge {
+      border-color: rgba(255,255,255,.55);
+      background: rgba(255,255,255,.14);
+      color: #fff;
+    }
+    .action-main {
+      display: block;
+      color: inherit;
+      font-weight: 800;
+      line-height: 1.25;
+    }
+    .action-sub {
+      display: block;
+      margin-top: 4px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.35;
+      font-weight: 400;
+    }
+    .action-btn.primary .action-sub {
+      color: rgba(255,255,255,.86);
+    }
     .seg {
       display: grid;
       grid-template-columns: repeat(2, 1fr);
@@ -584,9 +641,30 @@
             </select>
           </div>
 
-          <button class="btn primary full" id="plan">安排今天的学习</button>
-          <button class="btn full" id="systemPlan">制定系统学习规划</button>
-          <button class="btn full" id="startLesson">开始知识点学习</button>
+          <div class="learning-actions" aria-label="学习操作">
+            <div class="learning-action-title">学习操作</div>
+            <button class="btn primary action-btn" id="plan">
+              <span class="action-badge">今日</span>
+              <span>
+                <span class="action-main">安排今天的学习</span>
+                <span class="action-sub">按当前状态安排一节课和练习</span>
+              </span>
+            </button>
+            <button class="btn action-btn" id="systemPlan">
+              <span class="action-badge">路线</span>
+              <span>
+                <span class="action-main">制定系统学习规划</span>
+                <span class="action-sub">按上方周期生成长期路线</span>
+              </span>
+            </button>
+            <button class="btn action-btn" id="startLesson">
+              <span class="action-badge">小课</span>
+              <span>
+                <span class="action-main">开始知识点学习</span>
+                <span class="action-sub">直接进入一个知识点讲解与练习</span>
+              </span>
+            </button>
+          </div>
 
           <div class="conversation-tools">
             <button class="btn full" id="newConversation">新对话</button>
