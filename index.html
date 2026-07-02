@@ -1407,6 +1407,13 @@
       }
     }
 
+    function resetGuidedLearningContext() {
+      currentConversationId = "";
+      history = [];
+      messages.innerHTML = "";
+      drawDefault();
+    }
+
     function authHeaders() {
       return authToken ? { Authorization: `Bearer ${authToken}` } : {};
     }
@@ -1649,14 +1656,17 @@
     installAppButton.addEventListener("click", installApp);
 
     document.querySelector("#plan").addEventListener("click", () => {
+      resetGuidedLearningContext();
       send("请根据我的阶段、目标和当前状态，安排今天的数学学习。", { intent: "daily_plan" });
     });
 
     document.querySelector("#systemPlan").addEventListener("click", () => {
+      resetGuidedLearningContext();
       send("请根据我的阶段、目标、当前状态和规划周期，制定一份系统化数学学习规划，包含学习路线、知识点顺序、练习安排和家长观察建议。", { intent: "system_plan" });
     });
 
     document.querySelector("#startLesson").addEventListener("click", () => {
+      resetGuidedLearningContext();
       send("请根据我的学习画像，选择一个最适合现在学习的数学知识点，开始一节知识点学习，并配套少量练习。", { intent: "lesson_start" });
     });
 

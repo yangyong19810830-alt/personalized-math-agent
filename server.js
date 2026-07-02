@@ -5,7 +5,7 @@ const crypto = require("crypto");
 
 const PORT = Number(process.env.PORT || 8787);
 const ROOT = __dirname;
-const APP_VERSION = "sde-knowledge-20260702-openai-vision-priority";
+const APP_VERSION = "sde-knowledge-20260702-system-learning-plan-fix";
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || "";
 const DEEPSEEK_BASE_URL = (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com").replace(/\/$/, "");
 const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || "deepseek-v4-pro";
@@ -651,6 +651,10 @@ function systemPrompt(profile, messages = []) {
     "把学生的卡点当成学习要发生的位置，而不是要快速抹平的错误。常见信号：说不清、条件对不上、某一步绕不过、学过很多方法但收不拢。遇到这些信号，要先定位卡点，再决定是追问、给选项、画图、举局部例子，还是切到讲解。",
     "反幻象纪律：回复不能只是流畅、热情、完整；必须锚定原题、学生上一句回答、一个明确下一步动作。若发现自己在重复模板、绕圈、画了和题目不对应的图、或给出无法被题目条件支撑的关系，要立刻收缩到原题核对。",
     "长期目标：让学生越用越能独立，而不是越用越依赖。每次帮助都要尽量留下一个学生可复用的小能力：会找对象、会定标准、会看关系、会解释式子、会复述结构、会迁移到同结构新题。",
+    "系统化学习指导功能：当用户要求学习计划、系统规划、今天学习、知识点学习、阶段路线、小学/初中/高中/大学数学规划时，不要按解题模式追问。要把自己切换为数学学习教练：先根据学生阶段、目标、当前状态和规划周期判断最该补的主线，再给出可执行计划。",
+    "学习规划输出结构：1. 先用两三句话判断当前学习重点；2. 给出本阶段主线地图，按知识块排序；3. 给出规划周期内的学习安排；4. 给出今天第一节课怎么学；5. 配 3-5 道练习，按基础、迁移、表达复述分层；6. 给家长一个观察方法。不要只列大纲，每一项都要能执行。",
+    "知识点学习课结构：选一个最适合当前画像的知识点；先说为什么现在学它；再用生活场景唤醒；然后讲核心结构；再给一题启发式练习；最后要求学生用一句话复述结构。若学生阶段是大学，生活化可以减少，重点放在定义环境、对象、结构、证明或计算路径。",
+    "跨学段规划边界：小学重对象、单位、数量关系、图形直观和表达；初中重方程函数、几何证明、代数变形、模型迁移；高中重函数、数列、解析几何、立体几何、概率统计、导数与综合建模；大学重线性代数、微积分、概率统计、离散数学、数学建模或专业课先修结构。不要把所有知识一次塞满，要给路线和优先级。",
     "SDE知识画像底层功能：当用户询问某个知识、概念、公式、定理、方法，或追问“为什么要这样做”时，先在内部把它从静态结论还原为“在什么 E 中，经由什么 D，最终形成什么 S”的发生结构。这个画像必须由三部分组成：三方程、六路径、三原理。画像只用于后台思考，不要原样说给学生。",
     "三方程内部模板：S方程看结果：在 E 的条件下，经过 D，稳定成什么概念、公式、定理、模型、方法、判断标准或结构关系；D方程看发生：为了形成 S，E 中出现了什么问题、冲突、变化、操作和推进过程；E方程看场域：S 和 D 依赖什么题境、条件、边界和价值目的，换一个环境是否仍然成立。",
     "六路径选择纪律：SDE适合复习、公式方法和熟练应用；SED适合迁移到多场景；DSE适合讲概念为什么发生；DES适合应用题、几何题、综合题破局；ESD适合生活化类比和通融解释；EDS适合启发式发生教学。启发模式优先用DES或EDS，讲解模式可用DSE、ESD、SDE，类比解释优先用ESD。",
@@ -673,6 +677,8 @@ function systemPrompt(profile, messages = []) {
     `回复模式：${mode}。`,
     `学习目标：${profile.goal || "补齐薄弱知识"}。`,
     `当前状态：${profile.state || "局部会做但不稳定"}。`,
+    `规划周期：${profile.planSpan || "今天"}。`,
+    `当前意图：${profile.intent || "普通对话"}。`,
     ...modeRules,
     "输出要求：直接给学生看的自然语言，不要输出 JSON，不要 Markdown，不要代码块。",
     "如果需要画结构图，图的节点顺序要符合学生理解顺序：先对象/已知条件，再单位或标准，再关键关系，再解题动作，最后目标结果或检查。边的标签要短，像“对应”“变化”“推出”“检查”这种能说明关系流动的词。前端会把结构图做成逐步播放的动图，所以不要让节点顺序杂乱。",
@@ -683,13 +689,14 @@ function systemPrompt(profile, messages = []) {
 
 function deepSeekConfig(messages, profile = {}, forcePro = false) {
   const isExplanation = profile?.mode === "讲解模式";
+  const isPlan = isLearningPlanRequest(messages, profile);
   return {
     tier: "pro",
     apiKey: DEEPSEEK_PRO_API_KEY,
     baseUrl: DEEPSEEK_PRO_BASE_URL,
     model: DEEPSEEK_PRO_MODEL,
     temperature: 0.25,
-    maxTokens: isExplanation ? 2200 : 900
+    maxTokens: isPlan ? 1800 : (isExplanation ? 2200 : 900)
   };
 }
 
@@ -780,8 +787,13 @@ function historyText(messages, count = 8) {
   return messages.slice(-count).map(message => deepSeekMessageText(message)).join("\n");
 }
 
+function isPlanningText(text) {
+  return /\u5b66\u4e60\u8ba1\u5212|\u5b66\u4e60\u89c4\u5212|\u7cfb\u7edf\u89c4\u5212|\u7cfb\u7edf\u5316|\u89c4\u5212\u5468\u671f|\u5b66\u4e60\u8def\u7ebf|\u77e5\u8bc6\u70b9\u987a\u5e8f|\u7ec3\u4e60\u5b89\u6392|\u5bb6\u957f\u89c2\u5bdf|\u5236\u5b9a.*\u89c4\u5212|\u5b89\u6392.*\u5b66\u4e60|\u5f00\u59cb.*\u77e5\u8bc6\u70b9|\u4e00\u8282\u8bfe/.test(String(text || ""));
+}
+
 function isNewProblemInput(text) {
   const value = String(text || "").trim();
+  if (isPlanningText(value)) return false;
   if (value.length < 20) return false;
   if (isPracticeRequest([{ role: "user", content: value }])) return false;
   return /问|求|多少|几|如果|已知|证明|计算|一共|共有|需要|至少|最多|最少/.test(value)
@@ -795,7 +807,34 @@ function needsStructureReveal(messages) {
 
 function isPracticeRequest(messages) {
   const latest = latestUserText(messages);
+  if (isPlanningText(latest)) return false;
   return /出\s*(一|1)?\s*道|来\s*(一|1)?\s*道|给我.*题|给.*出.*题|练习题|练一练|测试一下|考考我|生成.*题|安排.*练习/.test(latest);
+}
+
+function isLearningPlanRequest(messages, profile = {}) {
+  const latest = latestUserText(messages);
+  if (["daily_plan", "system_plan", "lesson_start"].includes(profile?.intent)) return true;
+  return /学习计划|系统规划|系统化|规划|路线|路线图|今天.*学习|安排.*学习|知识点学习|开始.*学习|一节课|学什么|怎么学|小学.*数学|初中.*数学|高中.*数学|大学.*数学|家长.*指导|练习安排/.test(latest);
+}
+
+function fallbackLearningPlanReply(messages, profile = {}) {
+  const stage = profile.stage || "小学";
+  const goal = profile.goal || "补齐薄弱知识";
+  const state = profile.state || "局部会做但不稳定";
+  const span = profile.planSpan || "今天";
+  const map = {
+    "小学": "数感与运算 -> 分数小数百分数 -> 数量关系应用题 -> 图形面积体积 -> 表达与迁移",
+    "初中": "数与式 -> 方程不等式 -> 函数图像 -> 几何证明 -> 统计概率与综合建模",
+    "高中": "函数主线 -> 三角/向量 -> 数列 -> 解析几何 -> 立体几何 -> 概率统计 -> 导数综合",
+    "大学": "集合与逻辑 -> 微积分 -> 线性代数 -> 概率统计 -> 离散/建模 -> 专业课数学工具"
+  };
+  return [
+    `我先按“${stage}、${goal}、${state}、${span}”给你做一个可执行的学习安排。`,
+    `主线地图：${map[stage] || map["小学"]}。现在不要平均用力，先抓最影响后续学习的那条主线。`,
+    `这段时间的重点：先补“对象、单位/标准、关系表达”这三个能力。每天学习不要只刷题，要按“学一个结构 -> 做两三道题 -> 复述结构 -> 换场景迁移”来走。`,
+    "今天第一节课：选一个最常卡住的知识点，先用一道典型题定位卡点，再讲这个知识为什么会发生，最后做 3 道练习：1 道基础题、1 道换场景题、1 道让学生说结构的表达题。",
+    "家长观察：不要只问做对没有，而是问三句话：题里有哪些对象？单位或标准是谁？它们之间是什么关系？孩子能说清这三句，才说明知识开始稳定。"
+  ].join("\n\n");
 }
 
 function isDirectUserQuestion(messages) {
@@ -808,9 +847,20 @@ function directQuestionLine(messages) {
   return "当前用户提出了明确疑问或反驳。请先正面回答用户这句话本身，不要继续套用原来的启发流程。回答时先说“你问的是……”，再解释原因；解释完后最多补一个很小的下一步问题。";
 }
 
+function learningPlanLine(messages, profile = {}) {
+  if (!isLearningPlanRequest(messages, profile)) return "";
+  if (profile?.intent === "lesson_start") {
+    return "当前用户要开始知识点学习，不是在解题作答。请直接设计一节小课：选择一个最适合当前画像的知识点；说明为什么先学它；用一个熟悉场景引入；讲核心结构；给 3 道练习，分别是基础、迁移、表达复述；最后问学生愿意先做哪一道。不要机械追问已知什么求什么。";
+  }
+  if (profile?.intent === "daily_plan") {
+    return "当前用户要安排今天的数学学习，不是在解题作答。请给一份当天可执行安排：目标、学习知识点、15-30分钟学习流程、练习题类型、复述任务、家长观察点。不要泛泛鼓励。";
+  }
+  return "当前用户要系统化学习规划，不是在解题作答。请按学生阶段、学习目标、当前状态和规划周期输出：阶段主线地图、优先补的知识块、周期安排、今天第一节课、练习分层、家长观察建议。不要只列目录，要让家长知道明天就怎么用。";
+}
+
 function isKnowledgeAnalogyRequest(messages) {
   const latest = latestUserText(messages);
-  if (!latest || isPracticeRequest(messages) || isNewProblemInput(latest)) return false;
+  if (!latest || isPlanningText(latest) || isPracticeRequest(messages) || isNewProblemInput(latest)) return false;
   return /类比|打比方|比喻|日常|生活|费曼|通融|举例|举个例子|怎么理解|怎样理解|什么是|是什么意思|为什么|为啥|本质|原理|概念|公式|定理|方法|模型|意义/.test(latest);
 }
 
@@ -857,7 +907,7 @@ function needsChoiceScaffold(messages) {
   const recent = historyText(messages, 8);
   const userTurns = messages.filter(message => message.role === "user").length;
   if (userTurns < 2) return false;
-  if (isDirectUserQuestion(messages) || isPracticeRequest(messages) || isKnowledgeAnalogyRequest(messages) || isAnalogySceneChoice(messages)) return false;
+  if (isDirectUserQuestion(messages) || isPracticeRequest(messages) || isLearningPlanRequest(messages) || isKnowledgeAnalogyRequest(messages) || isAnalogySceneChoice(messages)) return false;
   return /不知道|不会|不懂|不确定|没思路|卡住|随便|蒙|可能|应该|前面|后面|最后|只会|不标准|漏了|少答|没答完|只回答/.test(latest)
     || /不对|错了|偏了|漏掉|没回答最后|无意义重复|模板|绕圈|继续卡/.test(recent);
 }
@@ -870,7 +920,7 @@ function choiceScaffoldLine(messages) {
 function studentGapLine(messages) {
   const latest = latestUserText(messages);
   const userTurns = messages.filter(message => message.role === "user").length;
-  if (userTurns <= 1 || isDirectUserQuestion(messages) || isPracticeRequest(messages) || isKnowledgeAnalogyRequest(messages) || isAnalogySceneChoice(messages)) return "";
+  if (userTurns <= 1 || isDirectUserQuestion(messages) || isPracticeRequest(messages) || isLearningPlanRequest(messages) || isKnowledgeAnalogyRequest(messages) || isAnalogySceneChoice(messages)) return "";
   const hints = [];
   if (/不知道|不会|不懂|看不懂|没思路|题目看不懂|条件|对象|单位/.test(latest)) {
     hints.push("学生可能缺少先备经验或对象关系没有连上：先补对象、单位、图形或已知条件，不要直接推进计算。");
@@ -909,7 +959,7 @@ function practiceRequestLine(messages) {
 
 function activeProblemText(messages) {
   const latest = latestUserText(messages);
-  if (isKnowledgeAnalogyRequest(messages) || isAnalogySceneChoice(messages)) return "";
+  if (isLearningPlanRequest(messages) || isKnowledgeAnalogyRequest(messages) || isAnalogySceneChoice(messages)) return "";
   if (!latest || isPracticeRequest(messages) || isNewProblemInput(latest)) return "";
   const assistant = [...messages].reverse()
     .find(message => message.role === "assistant" && /问|多少|几|？|\?/.test(deepSeekMessageText(message)));
@@ -1167,6 +1217,9 @@ function fallbackTeachingReply(messages, profile = {}) {
   const text = latestUserText(messages);
   const allText = historyText(messages, 10);
   const isExplanation = profile?.mode === "讲解模式";
+  if (isLearningPlanRequest(messages, profile)) {
+    return fallbackLearningPlanReply(messages, profile);
+  }
   if (isDirectUserQuestion(messages)) {
     return directQuestionFallback(messages);
   }
@@ -1218,6 +1271,9 @@ function nextHeuristicQuestion(messages) {
   if (isDirectUserQuestion(messages)) {
     return directQuestionFallback(messages);
   }
+  if (isLearningPlanRequest(messages)) {
+    return fallbackLearningPlanReply(messages);
+  }
   if (isPracticeRequest(messages)) {
     return fallbackTeachingReply(messages, { mode: "启发模式" });
   }
@@ -1247,6 +1303,10 @@ function isLikelyIncomplete(text) {
 
 function trimHeuristicReply(text, messages, profile = {}) {
   const value = String(text || "").trim();
+  if (isLearningPlanRequest(messages, profile)) {
+    if (!value) return fallbackLearningPlanReply(messages, profile);
+    return value.length > 2200 ? `${value.slice(0, 2200)}。` : value;
+  }
   if (isKnowledgeAnalogyRequest(messages) || isAnalogySceneChoice(messages)) {
     if (!value) return fallbackKnowledgeAnalogyReply(messages);
     return value.length > 1200 ? `${value.slice(0, 1200)}。` : value;
@@ -1286,6 +1346,7 @@ async function requestDeepSeek(messages, profile, config, options = {}) {
         content: [
           systemPrompt(profile || {}, messages),
           modelPromptLine(config),
+          learningPlanLine(messages, profile || {}),
           directQuestionLine(messages),
           knowledgeAnalogyLine(messages),
           choiceScaffoldLine(messages),
