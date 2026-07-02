@@ -390,6 +390,16 @@
       gap: 8px;
       flex-wrap: wrap;
     }
+    .image-note {
+      border: 1px solid #b9e3dc;
+      border-radius: 7px;
+      background: #eef8f6;
+      color: var(--teal);
+      padding: 8px 10px;
+      font-size: 12px;
+      font-weight: 800;
+      line-height: 1.35;
+    }
     .visual {
       min-height: 0;
       display: grid;
@@ -788,10 +798,10 @@
             <div class="image-workflow-title" id="previewText">题图已准备好</div>
             <ol class="image-steps">
               <li><span>第1步</span><div>可选：先在下面输入框补充说明，例如“只做第3小问”“图中AB是切线”。</div></li>
-              <li><span>第2步</span><div>点下面按钮，系统会把题图和补充说明一起识别并开始提问。</div></li>
+              <li><span>第2步</span><div>点右下角按钮，系统会把题图和补充说明一起识别并开始提问。</div></li>
             </ol>
+            <div class="image-note">现在右下角按钮会变成“识别并提问”，补充完直接点它。</div>
             <div class="image-actions">
-              <button class="btn primary" id="recognizeImage">开始识别并提问</button>
               <button class="btn" id="clearImage">清除题图</button>
             </div>
           </div>
@@ -839,6 +849,7 @@
     const previewImage = document.querySelector("#previewImage");
     const conversationList = document.querySelector("#conversationList");
     const voiceButton = document.querySelector("#voiceInput");
+    const sendButton = document.querySelector("#send");
     const installAppButton = document.querySelector("#installApp");
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     let recognition = null;
@@ -856,6 +867,12 @@
         state: document.querySelector("#state").value,
         planSpan: document.querySelector("#planSpan").value
       };
+    }
+
+    function updateSendButtonMode() {
+      if (!sendButton) return;
+      sendButton.textContent = selectedImageData ? "识别并提问" : "发送";
+      sendButton.title = selectedImageData ? "把题图和输入框里的补充说明一起识别" : "发送文字";
     }
 
     function setupPwaInstall() {
@@ -1743,6 +1760,7 @@
         selectedImageData = "";
         previewImage.removeAttribute("src");
         imagePreview.classList.remove("show");
+        updateSendButtonMode();
         return true;
       } catch {
         loading.remove();
@@ -1763,7 +1781,8 @@
       selectedImageData = await fileToDataUrl(file);
       previewImage.src = selectedImageData;
       imagePreview.classList.add("show");
-      document.querySelector("#previewText").textContent = `已${source}题图：可先补充说明，再点“开始识别并提问”`;
+      document.querySelector("#previewText").textContent = `已${source}题图：补充完后点右下角“识别并提问”`;
+      updateSendButtonMode();
       return true;
     }
 
@@ -1836,7 +1855,7 @@
       });
     });
 
-    document.querySelector("#send").addEventListener("click", () => {
+    sendButton.addEventListener("click", () => {
       if (selectedImageData) {
         recognizeSelectedImage();
         return;
@@ -1896,12 +1915,12 @@
       await acceptImageFile(file, "粘贴");
     });
 
-    document.querySelector("#recognizeImage").addEventListener("click", recognizeSelectedImage);
     document.querySelector("#clearImage").addEventListener("click", () => {
       selectedImageData = "";
       previewImage.removeAttribute("src");
       imagePreview.classList.remove("show");
       document.querySelector("#imageInput").value = "";
+      updateSendButtonMode();
     });
 
     document.querySelector("#register").addEventListener("click", () => authRequest("/api/register"));
