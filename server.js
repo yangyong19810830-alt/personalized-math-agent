@@ -5,7 +5,7 @@ const crypto = require("crypto");
 
 const PORT = Number(process.env.PORT || 8787);
 const ROOT = __dirname;
-const APP_VERSION = "sde-knowledge-20260702-openai-vision-diagram";
+const APP_VERSION = "sde-knowledge-20260702-openai-vision-priority";
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || "";
 const DEEPSEEK_BASE_URL = (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com").replace(/\/$/, "");
 const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || "deepseek-v4-pro";
@@ -23,7 +23,10 @@ const OPENAI_VISION_TIMEOUT_MS = Number(process.env.OPENAI_VISION_TIMEOUT_MS || 
 const OPENAI_DIAGRAM_MODEL = process.env.OPENAI_DIAGRAM_MODEL || OPENAI_VISION_MODEL;
 const OPENAI_DIAGRAM_TIMEOUT_MS = Number(process.env.OPENAI_DIAGRAM_TIMEOUT_MS || 12000);
 const VISION_API_KEY = process.env.VISION_API_KEY || "";
-const VISION_PROVIDER = (process.env.VISION_PROVIDER || "openai").toLowerCase();
+const RAW_VISION_PROVIDER = (process.env.VISION_PROVIDER || "openai").toLowerCase();
+const VISION_PROVIDER = OPENAI_API_KEY && !["zhipu-only", "kimi-only"].includes(RAW_VISION_PROVIDER)
+  ? "openai"
+  : RAW_VISION_PROVIDER.replace("-only", "");
 const VISION_BASE_URL = (process.env.VISION_BASE_URL || "https://open.bigmodel.cn/api/paas/v4").replace(/\/$/, "");
 const VISION_MODEL = process.env.VISION_MODEL || "glm-4v-plus-0111";
 const VISION_MAX_TOKENS = Number(process.env.VISION_MAX_TOKENS || 1800);
@@ -1633,6 +1636,9 @@ async function callVisionWithProvider(image, provider, hint = "") {
 }
 
 async function callVision(image, hint = "") {
+  if (!OPENAI_API_KEY && RAW_VISION_PROVIDER === "openai") {
+    throw new Error("还没有配置 OPENAI_API_KEY，所以无法使用 OpenAI 图片识别。请在 Render 环境变量里添加 OPENAI_API_KEY 后重新部署。");
+  }
   const providers = VISION_PROVIDER === "openai"
     ? ["openai", ...(KIMI_API_KEY ? ["kimi"] : []), ...(VISION_API_KEY ? ["zhipu"] : [])]
     : VISION_PROVIDER === "kimi"
@@ -2180,6 +2186,7 @@ const server = http.createServer((req, res) => {
       chatLimitPerDay: DAILY_LIMIT,
       deployedAt: "2026-07-02",
       visionProvider: VISION_PROVIDER,
+      rawVisionProvider: RAW_VISION_PROVIDER,
       openaiVisionModel: OPENAI_VISION_MODEL,
       openaiDiagramModel: OPENAI_DIAGRAM_MODEL
     });
