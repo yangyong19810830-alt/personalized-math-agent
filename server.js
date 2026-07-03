@@ -5,7 +5,7 @@ const crypto = require("crypto");
 
 const PORT = Number(process.env.PORT || 8787);
 const ROOT = __dirname;
-const APP_VERSION = "sde-knowledge-20260703-invite-login";
+const APP_VERSION = "sde-knowledge-20260703-auto-geometry-example";
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || "";
 const DEEPSEEK_BASE_URL = (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com").replace(/\/$/, "");
 const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || "deepseek-v4-pro";
@@ -659,6 +659,7 @@ function systemPrompt(profile, messages = []) {
     "系统化学习指导功能：当用户要求学习计划、系统规划、今天学习、知识点学习、阶段路线、小学/初中/高中/大学数学规划时，不要按解题模式追问。要把自己切换为数学学习教练：先根据学生阶段、目标、当前状态和规划周期判断最该补的主线，再给出可执行计划。",
     "学习规划输出结构：1. 先用两三句话判断当前学习重点；2. 给出本阶段主线地图，按知识块排序；3. 给出规划周期内的学习安排；4. 给出今天第一节课怎么学；5. 配 3-5 道练习，按基础、迁移、表达复述分层；6. 给家长一个观察方法。不要只列大纲，每一项都要能执行。",
     "知识点学习课结构：选一个最适合当前画像的知识点；先说为什么现在学它；再用生活场景唤醒；然后讲核心结构；再给一题启发式练习；最后要求学生用一句话复述结构。若学生阶段是大学，生活化可以减少，重点放在定义环境、对象、结构、证明或计算路径。",
+    "如果知识点学习课里由你自己生成几何例题，不能只写“如图”。必须在文字里写清图形对象、点名和关键关系，例如“三角形 ABC 中，D 在 BC 上，AD 垂直 BC”或“圆 O 外一点 P，PA 是切线，A 为切点”。这样右侧才能自动画出对应示意图。",
     "跨学段规划边界：小学重对象、单位、数量关系、图形直观和表达；初中重方程函数、几何证明、代数变形、模型迁移；高中重函数、数列、解析几何、立体几何、概率统计、导数与综合建模；大学重线性代数、微积分、概率统计、离散数学、数学建模或专业课先修结构。不要把所有知识一次塞满，要给路线和优先级。",
     "SDE知识画像底层功能：当用户询问某个知识、概念、公式、定理、方法，或追问“为什么要这样做”时，先在内部把它从静态结论还原为“在什么 E 中，经由什么 D，最终形成什么 S”的发生结构。这个画像必须由三部分组成：三方程、六路径、三原理。画像只用于后台思考，不要原样说给学生。",
     "三方程内部模板：S方程看结果：在 E 的条件下，经过 D，稳定成什么概念、公式、定理、模型、方法、判断标准或结构关系；D方程看发生：为了形成 S，E 中出现了什么问题、冲突、变化、操作和推进过程；E方程看场域：S 和 D 依赖什么题境、条件、边界和价值目的，换一个环境是否仍然成立。",
@@ -1008,16 +1009,164 @@ function fallbackKnowledgeAnalogyReply(messages) {
 function shouldShowLocalDiagram(messages, profile = {}) {
   const text = latestUserText(messages);
   const recentText = historyText(messages, 4);
+  if (profile.intent === "lesson_start") return true;
   if (/画图|结构图|图解|画出来|关系图|示意图|看图理解/.test(text)) return true;
+  if (isKnowledgeVisualTopic(`${text}\n${recentText}`)) return true;
   if (profile.mode === "讲解模式") return true;
   if (messages.filter(message => message.role === "user").length >= 2 && /不会|不懂|卡住|没思路|不知道|错了|再讲|为什么/.test(text)) return true;
   return /几何|证明|钟|追及|相遇|工程|行程|函数|参数|分类讨论|数列|导数|圆|三角形|面积|体积|概率/.test(recentText)
     && messages.filter(message => message.role === "user").length >= 2;
 }
 
+function isKnowledgeVisualTopic(text) {
+  const value = String(text || "");
+  return /函数|图像|坐标|自变量|因变量|定义域|值域|单调|奇偶|一次函数|二次函数|反比例函数|指数函数|对数函数|导数|斜率|几何|图形|三角形|四边形|圆|线段|直线|射线|角度|平行|垂直|相似|全等|切线|弦|半径|直径|面积|体积|数列|通项|递推|概率|样本空间|事件/.test(value);
+}
+
+function shouldPreferLocalDiagram(messages, profile = {}) {
+  const text = `${latestUserText(messages)}\n${historyText(messages, 4)}`;
+  if (profile.intent === "lesson_start") return true;
+  if (/知识点|概念|学|学习|讲讲|解释|理解|类比|为什么|示意图|图解/.test(text) && isKnowledgeVisualTopic(text)) return true;
+  return false;
+}
+
+function isGeometryExampleContext(text) {
+  const value = String(text || "");
+  return /几何|图形|三角形|四边形|梯形|圆|线段|直线|射线|角度|平行|垂直|相似|全等|切线|弦|半径|直径|面积|体积|△|∠|⊙/.test(value)
+    && /例题|练习|题目|已知|证明|求|如图|若|设|问|推出|说明/.test(value);
+}
+
+function geometryExampleKind(text) {
+  const value = String(text || "");
+  if (/圆|⊙|切线|弦|半径|直径|圆心/.test(value)) return "circle";
+  if (/梯形/.test(value)) return "trapezoid";
+  if (/四边形|矩形|正方形|菱形|平行四边形/.test(value)) return "quadrilateral";
+  return "triangle";
+}
+
+function geometryExampleLabels(text, kind) {
+  const found = [...String(text || "").matchAll(/[A-Z]/g)]
+    .map(match => match[0])
+    .filter(label => !["X", "Y"].includes(label));
+  const unique = [...new Set(found)].slice(0, 8);
+  const defaults = {
+    circle: ["O", "P", "A", "B", "C"],
+    trapezoid: ["A", "B", "C", "D", "E"],
+    quadrilateral: ["A", "B", "C", "D", "E"],
+    triangle: ["A", "B", "C", "D", "E"]
+  };
+  return unique.length >= 3 ? unique : defaults[kind];
+}
+
+function buildGeometryExampleDiagram(context) {
+  const kind = geometryExampleKind(context);
+  const labels = geometryExampleLabels(context, kind);
+  const shapeName = {
+    circle: "圆与切线/弦关系",
+    trapezoid: "梯形与三角形关系",
+    quadrilateral: "四边形关系",
+    triangle: "三角形关系"
+  }[kind] || "几何关系";
+  return {
+    title: "几何例题示意图",
+    demoType: `geometry-example-${kind}`,
+    figure: { kind, labels },
+    nodes: [
+      { id: "n1", label: shapeName, type: "given" },
+      { id: "n2", label: `标注点：${labels.slice(0, 5).join("、")}`, type: "given" },
+      { id: "n3", label: "已知关系", type: "relation" },
+      { id: "n4", label: "关键辅助关系", type: "step" },
+      { id: "n5", label: "要证明/要求的目标", type: "goal" },
+      { id: "n6", label: "回到原题核对", type: "check" }
+    ],
+    edges: [
+      { from: "n1", to: "n2", label: "先定位图形" },
+      { from: "n2", to: "n3", label: "读已知标注" },
+      { from: "n3", to: "n4", label: "找定理桥梁" },
+      { from: "n4", to: "n5", label: "推出目标" },
+      { from: "n5", to: "n6", label: "防止误读" }
+    ],
+    note: "根据智能体本轮生成的几何例题自动配图；这是辅助理解示意图，不替代严谨作图。"
+  };
+}
+
 function buildLocalDiagram(messages, answer = "") {
   const text = latestUserText(messages).replace(/\s+/g, " ");
   const context = `${text}\n${answer}`.replace(/\s+/g, " ");
+
+  if (/函数|图像|坐标|自变量|因变量|定义域|值域|单调|奇偶|一次函数|二次函数|反比例函数|指数函数|对数函数|导数|斜率/.test(context)) {
+    return {
+      title: "函数关系示意图",
+      demoType: "function-concept",
+      nodes: [
+        { id: "n1", label: "输入 x", type: "given" },
+        { id: "n2", label: "对应规则 f", type: "relation" },
+        { id: "n3", label: "输出 y=f(x)", type: "result" },
+        { id: "n4", label: "图像上的点 (x,y)", type: "step" },
+        { id: "n5", label: "观察变化趋势", type: "relation" },
+        { id: "n6", label: "核对定义域和值域", type: "check" }
+      ],
+      edges: [
+        { from: "n1", to: "n2", label: "代入规则" },
+        { from: "n2", to: "n3", label: "得到对应值" },
+        { from: "n3", to: "n4", label: "落到坐标图上" },
+        { from: "n4", to: "n5", label: "看整体变化" },
+        { from: "n5", to: "n6", label: "回到取值范围" }
+      ],
+      note: "函数学习要把输入、规则、输出和图像上的点连起来看。"
+    };
+  }
+
+  if (isGeometryExampleContext(context)) {
+    return buildGeometryExampleDiagram(context);
+  }
+
+  if (/几何|图形|三角形|四边形|圆|线段|直线|射线|角度|平行|垂直|相似|全等|切线|弦|半径|直径|面积|体积/.test(context)
+    && /知识|概念|学习|学|讲|解释|理解|示意|图解|为什么/.test(context)) {
+    return {
+      title: "几何关系示意图",
+      demoType: "geometry-knowledge",
+      nodes: [
+        { id: "n1", label: "图形对象", type: "given" },
+        { id: "n2", label: "点、线、角", type: "given" },
+        { id: "n3", label: "明确关系", type: "relation" },
+        { id: "n4", label: "可用定理", type: "step" },
+        { id: "n5", label: "推出性质或结论", type: "goal" },
+        { id: "n6", label: "回图核对标注", type: "check" }
+      ],
+      edges: [
+        { from: "n1", to: "n2", label: "拆成基本元素" },
+        { from: "n2", to: "n3", label: "看相等/平行/垂直" },
+        { from: "n3", to: "n4", label: "匹配定理条件" },
+        { from: "n4", to: "n5", label: "得到目标关系" },
+        { from: "n5", to: "n6", label: "防止读图误差" }
+      ],
+      note: "几何知识要先看图形由哪些点线角组成，再看关系怎样触发定理。"
+    };
+  }
+
+  if (/数列|通项|递推|等差|等比|前n项|求和|项数/.test(context)) {
+    return {
+      title: "数列结构示意图",
+      demoType: "sequence-concept",
+      nodes: [
+        { id: "n1", label: "第 n 项的位置", type: "given" },
+        { id: "n2", label: "每一项的值", type: "given" },
+        { id: "n3", label: "相邻项关系", type: "relation" },
+        { id: "n4", label: "通项或递推式", type: "step" },
+        { id: "n5", label: "求指定项/求和", type: "goal" },
+        { id: "n6", label: "检查首项和项数", type: "check" }
+      ],
+      edges: [
+        { from: "n1", to: "n2", label: "位置对应数值" },
+        { from: "n2", to: "n3", label: "观察变化" },
+        { from: "n3", to: "n4", label: "表达规律" },
+        { from: "n4", to: "n5", label: "代入目标" },
+        { from: "n5", to: "n6", label: "回查边界" }
+      ],
+      note: "数列学习重点是把位置 n、项的值、变化规律连成一条线。"
+    };
+  }
 
   if (/几何|证明|圆|⊙|切线|弦|半径|直径|圆心|三角形|四边形|角|∠|平行|垂直|相似|全等|共线|共圆|AB|AC|AD|BD|BC/.test(context)) {
     return {
@@ -1585,11 +1734,13 @@ async function callDeepSeek(messages, profile) {
   const parsed = extractJsonObject(raw);
   if (!parsed || typeof parsed !== "object") {
     const showDiagram = shouldShowLocalDiagram(messages, profile);
-    const aiDiagram = showDiagram ? await callOpenAIDiagram(messages, raw, profile) : null;
+    const preferLocal = showDiagram && shouldPreferLocalDiagram(messages, profile);
+    const localDiagram = showDiagram ? buildLocalDiagram(messages, raw) : null;
+    const aiDiagram = showDiagram && !preferLocal ? await callOpenAIDiagram(messages, raw, profile) : null;
     return {
       answer: raw,
       diagramAction: showDiagram ? "show" : "hold",
-      diagram: showDiagram ? (aiDiagram || buildLocalDiagram(messages, raw)) : null,
+      diagram: showDiagram ? (preferLocal ? localDiagram : (aiDiagram || localDiagram)) : null,
       modelTier: usedConfig.tier,
       model: usedConfig.model
     };
@@ -1599,11 +1750,13 @@ async function callDeepSeek(messages, profile) {
   const normalizedDiagram = action === "hold" ? null : normalizeDiagram(parsed.diagram);
   const finalAction = action === "hold" && shouldForceDiagram ? "show" : action;
   const answer = String(parsed.answer || raw).trim();
-  const aiDiagram = finalAction === "hold" ? null : await callOpenAIDiagram(messages, answer, profile);
+  const preferLocal = finalAction !== "hold" && shouldPreferLocalDiagram(messages, profile);
+  const localDiagram = finalAction === "hold" ? null : buildLocalDiagram(messages, answer);
+  const aiDiagram = finalAction === "hold" || preferLocal ? null : await callOpenAIDiagram(messages, answer, profile);
   return {
     answer,
     diagramAction: finalAction,
-    diagram: aiDiagram || (normalizedDiagram?.nodes?.length ? normalizedDiagram : (finalAction === "hold" ? null : buildLocalDiagram(messages, answer))),
+    diagram: preferLocal ? localDiagram : (aiDiagram || (normalizedDiagram?.nodes?.length ? normalizedDiagram : localDiagram)),
     modelTier: usedConfig.tier,
     model: usedConfig.model
   };
@@ -2374,9 +2527,14 @@ async function handleChatStream(req, res) {
       const normalizedDiagram = action === "hold" ? null : normalizeDiagram(parsed.diagram);
       if (normalizedDiagram?.nodes?.length) diagram = normalizedDiagram;
     }
+    if (diagramAction !== "hold" && shouldPreferLocalDiagram(messages, profile)) {
+      diagram = buildLocalDiagram(messages, answer);
+    }
     if (diagramAction !== "hold" && !diagram) {
-      const aiDiagram = await callOpenAIDiagram(messages, answer, profile).catch(() => null);
-      diagram = aiDiagram || buildLocalDiagram(messages, answer);
+      const preferLocal = shouldPreferLocalDiagram(messages, profile);
+      const localDiagram = buildLocalDiagram(messages, answer);
+      const aiDiagram = preferLocal ? null : await callOpenAIDiagram(messages, answer, profile).catch(() => null);
+      diagram = preferLocal ? localDiagram : (aiDiagram || localDiagram);
     }
 
     const conversation = saveConversationMessages(

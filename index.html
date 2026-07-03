@@ -817,9 +817,9 @@
       </section>
 
       <aside class="panel visual">
-        <div class="head"><h2>解题结构图</h2></div>
+        <div class="head"><h2>结构示意图</h2></div>
         <div class="visual-board" id="visualBoard"></div>
-        <div class="body small">输入具体题目后，这里会画出“已知条件、关键关系、解题步骤、目标结果”的推进图。</div>
+        <div class="body small">输入题目或知识点后，这里会画出“对象、关系、步骤、目标”或概念结构的示意图。</div>
       </aside>
     </main>
   </div>
@@ -1413,7 +1413,7 @@
 
     function drawDefault() {
       visualCard(
-        "解题结构图",
+        "结构示意图",
         `<svg viewBox="0 0 320 180" role="img" aria-label="学习结构图">
           <g class="diagram-node" style="--delay:0ms">
             <rect x="24" y="62" width="74" height="44" rx="8" fill="#fff" stroke="#98a2b3"/>
@@ -1433,7 +1433,7 @@
           </g>
           <text class="diagram-edge-label" style="--delay:1740ms" x="50" y="140" font-size="13" fill="#667085">先看卡在哪里，再推进一小步</text>
         </svg>`,
-        "我会先提问启发。等你说出想法后，再根据需要画出结构图。"
+        "我会根据题目或知识点，适时画出关系结构或概念示意图。"
       );
     }
 
@@ -1529,9 +1529,228 @@
       );
     }
 
+    function renderFunctionConceptDiagram(diagram) {
+      const title = escapeHtml(diagram?.title || "函数关系示意图");
+      visualCard(
+        title,
+        `<svg viewBox="0 0 320 240" role="img" aria-label="函数关系示意图">
+          <defs>
+            <marker id="funcArrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+              <path d="M0,0 L8,4 L0,8 z" fill="#475467"></path>
+            </marker>
+          </defs>
+          <g class="diagram-node" style="--delay:0ms">
+            <rect x="18" y="16" width="70" height="34" rx="8" fill="#eff6ff" stroke="#1d4ed8"/>
+            <text x="53" y="38" text-anchor="middle" font-size="12" fill="#1d4ed8">输入 x</text>
+          </g>
+          <line class="diagram-edge" pathLength="1" style="--delay:260ms" x1="88" y1="33" x2="120" y2="33" stroke="#475467" marker-end="url(#funcArrow)"/>
+          <g class="diagram-node" style="--delay:520ms">
+            <rect x="120" y="16" width="78" height="34" rx="8" fill="#f5f3ff" stroke="#6d28d9"/>
+            <text x="159" y="38" text-anchor="middle" font-size="12" fill="#6d28d9">规则 f</text>
+          </g>
+          <line class="diagram-edge" pathLength="1" style="--delay:780ms" x1="198" y1="33" x2="232" y2="33" stroke="#475467" marker-end="url(#funcArrow)"/>
+          <g class="diagram-node" style="--delay:1040ms">
+            <rect x="232" y="16" width="70" height="34" rx="8" fill="#ecfdf3" stroke="#15803d"/>
+            <text x="267" y="38" text-anchor="middle" font-size="12" fill="#15803d">输出 y</text>
+          </g>
+
+          <g class="diagram-node" style="--delay:1320ms">
+            <line x1="44" y1="198" x2="286" y2="198" stroke="#667085" stroke-width="1.6" marker-end="url(#funcArrow)"/>
+            <line x1="70" y1="212" x2="70" y2="74" stroke="#667085" stroke-width="1.6" marker-end="url(#funcArrow)"/>
+            <text x="288" y="214" font-size="12" fill="#475467">x</text>
+            <text x="52" y="82" font-size="12" fill="#475467">y</text>
+            <text x="155" y="220" text-anchor="middle" font-size="11" fill="#667085">定义域：允许输入的 x</text>
+            <text x="16" y="142" font-size="11" fill="#667085" transform="rotate(-90 16 142)">值域：可能输出的 y</text>
+          </g>
+          <path class="diagram-edge" pathLength="1" style="--delay:1700ms" d="M72 180 C112 162, 130 122, 164 118 C204 114, 226 86, 268 76" fill="none" stroke="#0f766e" stroke-width="3"/>
+          <g class="diagram-node diagram-focus" style="--delay:2100ms">
+            <circle cx="164" cy="118" r="5" fill="#f97316"/>
+            <line x1="164" y1="118" x2="164" y2="198" stroke="#f97316" stroke-dasharray="4 4"/>
+            <line x1="70" y1="118" x2="164" y2="118" stroke="#f97316" stroke-dasharray="4 4"/>
+            <text x="174" y="112" font-size="12" fill="#9a3412">(x, f(x))</text>
+          </g>
+        </svg>`,
+        "函数图帮助学生把“输入 x、规则 f、输出 y、图像上的点”连成一个整体。学单调性、定义域和值域时，就看这条关系怎么变化。",
+        `<button class="btn" type="button" data-replay-diagram>重新播放</button>`
+      );
+    }
+
+    function diagramFigureLabels(diagram, fallback) {
+      const labels = Array.isArray(diagram?.figure?.labels)
+        ? diagram.figure.labels.map(label => String(label || "").trim()).filter(Boolean)
+        : [];
+      const unique = [...new Set(labels)].slice(0, fallback.length);
+      return unique.length ? [...unique, ...fallback].slice(0, fallback.length) : fallback;
+    }
+
+    function renderGeometryExampleDiagram(diagram) {
+      const title = escapeHtml(diagram?.title || "几何例题示意图");
+      const kindText = `${diagram?.figure?.kind || ""} ${diagram?.demoType || ""}`;
+      const isCircle = /circle|圆|切线|弦/.test(kindText);
+      const isTrapezoid = /trapezoid|梯形/.test(kindText);
+      const isQuadrilateral = /quadrilateral|四边形|矩形|正方形|平行四边形/.test(kindText);
+      let svg = "";
+
+      if (isCircle) {
+        const [o, p, a, b, c] = diagramFigureLabels(diagram, ["O", "P", "A", "B", "C"]);
+        svg = `<svg viewBox="0 0 320 250" role="img" aria-label="圆与切线例题示意图">
+          <g class="diagram-node" style="--delay:0ms">
+            <circle cx="170" cy="122" r="62" fill="#eff6ff" stroke="#1d4ed8" stroke-width="2.2"/>
+            <circle cx="170" cy="122" r="3" fill="#1d4ed8"/>
+            <text x="177" y="119" font-size="12" fill="#1f2937">${escapeHtml(o)}</text>
+            <text x="170" y="210" text-anchor="middle" font-size="12" fill="#667085">先看圆、圆心、外点和接触点</text>
+          </g>
+          <g class="diagram-node" style="--delay:520ms">
+            <circle cx="58" cy="174" r="3.5" fill="#f97316"/>
+            <text x="40" y="190" font-size="12" fill="#9a3412">${escapeHtml(p)}</text>
+            <line x1="58" y1="174" x2="126" y2="180" stroke="#0f766e" stroke-width="2.4"/>
+            <circle cx="126" cy="180" r="3.5" fill="#0f766e"/>
+            <text x="130" y="196" font-size="12" fill="#0f766e">${escapeHtml(a)}</text>
+            <text x="92" y="166" font-size="12" fill="#0f766e">切线/连线</text>
+          </g>
+          <g class="diagram-node" style="--delay:1040ms">
+            <line x1="126" y1="180" x2="214" y2="76" stroke="#6d28d9" stroke-width="2"/>
+            <circle cx="214" cy="76" r="3.5" fill="#6d28d9"/>
+            <text x="220" y="73" font-size="12" fill="#6d28d9">${escapeHtml(b)}</text>
+            <line x1="58" y1="174" x2="214" y2="76" stroke="#98a2b3" stroke-width="1.8" stroke-dasharray="5 4"/>
+            <text x="222" y="144" font-size="12" fill="#667085">${escapeHtml(c)}</text>
+          </g>
+          <g class="diagram-node diagram-focus" style="--delay:1600ms">
+            <rect x="58" y="18" width="204" height="30" rx="8" fill="#eef8f6" stroke="#0f766e"/>
+            <text x="160" y="38" text-anchor="middle" font-size="12" fill="#0f766e">用半径、切线、角关系搭桥</text>
+          </g>
+        </svg>`;
+      } else if (isTrapezoid) {
+        const [a, b, c, d, e] = diagramFigureLabels(diagram, ["A", "B", "C", "D", "E"]);
+        svg = `<svg viewBox="0 0 320 250" role="img" aria-label="梯形例题示意图">
+          <g class="diagram-node" style="--delay:0ms">
+            <path d="M58 178 L252 178 L210 72 L112 72 Z" fill="#eff6ff" stroke="#1d4ed8" stroke-width="2.2"/>
+            <text x="50" y="197" font-size="12" fill="#1f2937">${escapeHtml(a)}</text>
+            <text x="256" y="197" font-size="12" fill="#1f2937">${escapeHtml(b)}</text>
+            <text x="214" y="66" font-size="12" fill="#1f2937">${escapeHtml(c)}</text>
+            <text x="102" y="66" font-size="12" fill="#1f2937">${escapeHtml(d)}</text>
+            <text x="160" y="210" text-anchor="middle" font-size="12" fill="#667085">先看上底、下底和高</text>
+          </g>
+          <g class="diagram-node" style="--delay:520ms">
+            <line x1="112" y1="72" x2="252" y2="178" stroke="#6d28d9" stroke-width="2" stroke-dasharray="5 4"/>
+            <line x1="210" y1="72" x2="210" y2="178" stroke="#0f766e" stroke-width="2.4"/>
+            <text x="216" y="128" font-size="12" fill="#0f766e">高</text>
+            <circle cx="210" cy="178" r="3.5" fill="#0f766e"/>
+            <text x="214" y="194" font-size="12" fill="#0f766e">${escapeHtml(e)}</text>
+          </g>
+          <g class="diagram-node diagram-focus" style="--delay:1160ms">
+            <rect x="58" y="18" width="204" height="30" rx="8" fill="#eef8f6" stroke="#0f766e"/>
+            <text x="160" y="38" text-anchor="middle" font-size="12" fill="#0f766e">把梯形拆成三角形/高的关系</text>
+          </g>
+        </svg>`;
+      } else if (isQuadrilateral) {
+        const [a, b, c, d, e] = diagramFigureLabels(diagram, ["A", "B", "C", "D", "E"]);
+        svg = `<svg viewBox="0 0 320 250" role="img" aria-label="四边形例题示意图">
+          <g class="diagram-node" style="--delay:0ms">
+            <path d="M62 176 L238 176 L218 66 L88 76 Z" fill="#eff6ff" stroke="#1d4ed8" stroke-width="2.2"/>
+            <text x="54" y="195" font-size="12" fill="#1f2937">${escapeHtml(a)}</text>
+            <text x="242" y="195" font-size="12" fill="#1f2937">${escapeHtml(b)}</text>
+            <text x="222" y="60" font-size="12" fill="#1f2937">${escapeHtml(c)}</text>
+            <text x="78" y="70" font-size="12" fill="#1f2937">${escapeHtml(d)}</text>
+          </g>
+          <g class="diagram-node" style="--delay:560ms">
+            <line x1="62" y1="176" x2="218" y2="66" stroke="#6d28d9" stroke-width="2" stroke-dasharray="5 4"/>
+            <line x1="88" y1="76" x2="238" y2="176" stroke="#0f766e" stroke-width="2" stroke-dasharray="5 4"/>
+            <circle cx="153" cy="113" r="3.5" fill="#f97316"/>
+            <text x="160" y="110" font-size="12" fill="#9a3412">${escapeHtml(e)}</text>
+            <text x="160" y="214" text-anchor="middle" font-size="12" fill="#667085">看边、角、对角线或平行关系</text>
+          </g>
+        </svg>`;
+      } else {
+        const [a, b, c, d, e] = diagramFigureLabels(diagram, ["A", "B", "C", "D", "E"]);
+        svg = `<svg viewBox="0 0 320 250" role="img" aria-label="三角形例题示意图">
+          <g class="diagram-node" style="--delay:0ms">
+            <path d="M62 178 L252 178 L156 50 Z" fill="#eff6ff" stroke="#1d4ed8" stroke-width="2.2"/>
+            <text x="54" y="197" font-size="12" fill="#1f2937">${escapeHtml(a)}</text>
+            <text x="256" y="197" font-size="12" fill="#1f2937">${escapeHtml(b)}</text>
+            <text x="156" y="42" text-anchor="middle" font-size="12" fill="#1f2937">${escapeHtml(c)}</text>
+            <text x="160" y="216" text-anchor="middle" font-size="12" fill="#667085">先看三角形的点、边、角</text>
+          </g>
+          <g class="diagram-node" style="--delay:560ms">
+            <line x1="156" y1="50" x2="156" y2="178" stroke="#0f766e" stroke-width="2.4"/>
+            <circle cx="156" cy="178" r="3.5" fill="#0f766e"/>
+            <text x="162" y="194" font-size="12" fill="#0f766e">${escapeHtml(d)}</text>
+            <text x="164" y="116" font-size="12" fill="#0f766e">高/中线/辅助线</text>
+          </g>
+          <g class="diagram-node" style="--delay:1120ms">
+            <line x1="62" y1="178" x2="200" y2="110" stroke="#6d28d9" stroke-width="2" stroke-dasharray="5 4"/>
+            <circle cx="200" cy="110" r="3.5" fill="#6d28d9"/>
+            <text x="206" y="106" font-size="12" fill="#6d28d9">${escapeHtml(e)}</text>
+          </g>
+          <g class="diagram-node diagram-focus" style="--delay:1680ms">
+            <rect x="68" y="8" width="184" height="30" rx="8" fill="#eef8f6" stroke="#0f766e"/>
+            <text x="160" y="28" text-anchor="middle" font-size="12" fill="#0f766e">用边角关系连接目标</text>
+          </g>
+        </svg>`;
+      }
+
+      visualCard(
+        title,
+        svg,
+        escapeHtml(diagram?.note || "这是根据智能体本轮例题自动生成的辅助示意图，不替代原题精确作图。"),
+        `<button class="btn" type="button" data-replay-diagram>重新播放</button>`
+      );
+    }
+
+    function renderGeometryKnowledgeDiagram(diagram) {
+      const title = escapeHtml(diagram?.title || "几何关系示意图");
+      visualCard(
+        title,
+        `<svg viewBox="0 0 320 240" role="img" aria-label="几何关系示意图">
+          <defs>
+            <marker id="geoKnowArrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+              <path d="M0,0 L8,4 L0,8 z" fill="#0f766e"></path>
+            </marker>
+          </defs>
+          <g class="diagram-node" style="--delay:0ms">
+            <path d="M60 176 L250 176 L152 48 Z" fill="#eff6ff" stroke="#1d4ed8" stroke-width="2.2"/>
+            <text x="52" y="195" font-size="12" fill="#1f2937">A</text>
+            <text x="254" y="195" font-size="12" fill="#1f2937">B</text>
+            <text x="152" y="39" text-anchor="middle" font-size="12" fill="#1f2937">C</text>
+            <text x="156" y="216" text-anchor="middle" font-size="12" fill="#667085">先把图形拆成点、线、角</text>
+          </g>
+          <g class="diagram-node" style="--delay:520ms">
+            <line x1="92" y1="146" x2="216" y2="146" stroke="#0f766e" stroke-width="2" stroke-dasharray="5 4"/>
+            <text x="154" y="137" text-anchor="middle" font-size="12" fill="#0f766e">关系：平行/垂直/相等</text>
+          </g>
+          <g class="diagram-node" style="--delay:1040ms">
+            <path d="M82 171 A30 30 0 0 1 98 143" fill="none" stroke="#f97316" stroke-width="3"/>
+            <path d="M228 171 A30 30 0 0 0 212 143" fill="none" stroke="#f97316" stroke-width="3"/>
+            <text x="156" y="95" text-anchor="middle" font-size="12" fill="#9a3412">角、边、线段形成可用条件</text>
+          </g>
+          <path class="diagram-edge" pathLength="1" style="--delay:1540ms" d="M112 70 C82 44, 60 62, 76 96" fill="none" stroke="#0f766e" stroke-width="2" marker-end="url(#geoKnowArrow)"/>
+          <path class="diagram-edge" pathLength="1" style="--delay:1740ms" d="M196 70 C234 44, 260 62, 244 98" fill="none" stroke="#0f766e" stroke-width="2" marker-end="url(#geoKnowArrow)"/>
+          <g class="diagram-node diagram-focus" style="--delay:2100ms">
+            <rect x="82" y="8" width="156" height="30" rx="8" fill="#eef8f6" stroke="#0f766e"/>
+            <text x="160" y="28" text-anchor="middle" font-size="12" fill="#0f766e">匹配定理，推出结论</text>
+          </g>
+        </svg>`,
+        "几何示意图只表示关系，不替代原题图。学习几何时，重点是看点、线、角之间哪些关系能触发定理。",
+        `<button class="btn" type="button" data-replay-diagram>重新播放</button>`
+      );
+    }
+
     function renderStructureDiagram(diagram) {
       if (!diagram || !Array.isArray(diagram.nodes) || !diagram.nodes.length) {
         drawDefault();
+        return;
+      }
+      const demoType = String(diagram.demoType || "");
+      if (/function/.test(demoType)) {
+        renderFunctionConceptDiagram(diagram);
+        return;
+      }
+      if (/geometry-example/.test(demoType)) {
+        renderGeometryExampleDiagram(diagram);
+        return;
+      }
+      if (/geometry-knowledge/.test(demoType)) {
+        renderGeometryKnowledgeDiagram(diagram);
         return;
       }
 
@@ -1568,9 +1787,9 @@
       }).join("");
 
       visualCard(
-        escapeHtml(diagram.title || "解题结构图"),
-        `<div class="structure-chain" role="list" aria-label="解题结构链">${chainHtml}</div>`,
-        "这张图改为按顺序展示：先看条件，再看关系，再看步骤，最后落到目标。复杂题先求清楚，不追求节点多。",
+        escapeHtml(diagram.title || "结构示意图"),
+        `<div class="structure-chain" role="list" aria-label="结构示意链">${chainHtml}</div>`,
+        "这张图会按顺序展示：先看对象和条件，再看关系，再看步骤，最后落到目标。知识点学习也按这条线理解。",
         `<button class="btn" type="button" data-replay-diagram>重新播放</button>`
       );
     }
