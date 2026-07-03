@@ -5,7 +5,7 @@ const crypto = require("crypto");
 
 const PORT = Number(process.env.PORT || 8787);
 const ROOT = __dirname;
-const APP_VERSION = "sde-knowledge-20260703-xunfei-spark-x";
+const APP_VERSION = "sde-knowledge-20260703-xunfei-jpg-image";
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || "";
 const DEEPSEEK_BASE_URL = (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com").replace(/\/$/, "");
 const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || "deepseek-v4-pro";
@@ -2312,6 +2312,7 @@ function visionProviderConfig(provider) {
       temperature: 0,
       timeoutMs: XUNFEI_VISION_TIMEOUT_MS,
       useBareBase64: false,
+      preferJpgMime: true,
       endpoint: "chat"
     };
   }
@@ -2410,6 +2411,17 @@ function chatCompletionsUrl(baseUrl) {
   return /\/chat\/completions$/.test(value) ? value : `${value}/chat/completions`;
 }
 
+function normalizeVisionImage(image, config) {
+  let value = String(image || "");
+  if (config.preferJpgMime) {
+    value = value.replace(/^data:image\/jpeg;base64,/i, "data:image/jpg;base64,");
+  }
+  if (config.useBareBase64) {
+    return value.replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/, "");
+  }
+  return value;
+}
+
 async function callVisionWithProvider(image, provider, hint = "") {
   const config = visionProviderConfig(provider);
   if (!config.apiKey) {
@@ -2422,9 +2434,7 @@ async function callVisionWithProvider(image, provider, hint = "") {
           : "还没有配置 ZHIPU_API_KEY 或 VISION_API_KEY");
   }
 
-  const imageForProvider = config.useBareBase64
-    ? image.replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/, "")
-    : image;
+  const imageForProvider = normalizeVisionImage(image, config);
   const cleanHint = String(hint || "").trim().slice(0, 800);
   const hintPrompt = cleanHint
     ? `用户补充说明：${cleanHint}\n请结合补充说明识别图片。如果用户指定“只做第3小问/只证明某一步”，仍要识别相关题干和指定小问；如果用户同时输入了题目文字，以用户补充说明作为优先参考，用图片核对图形和条件。`
@@ -2496,6 +2506,9 @@ async function callVisionWithProvider(image, provider, hint = "") {
     const apiMessage = data.error?.message || data.message || `图片识别 API 错误：${response.status}`;
     if (provider === "xunfei" && /invalid param model/i.test(apiMessage)) {
       throw new Error(`讯飞 X2-VL 接口拒绝当前 model 参数：${config.requestModel || config.model || "空"}。请在 Render 环境变量里把 XUNFEI_REQUEST_MODEL 改成讯飞文档要求的模型参数名。`);
+    }
+    if (provider === "xunfei" && /image type not support/i.test(apiMessage)) {
+      throw new Error("讯飞 X2-VL 不接受当前图片格式。系统已改为 jpg 格式发送；如果仍出现，请换一张更清晰的 jpg/png 题图，或裁掉微信/浏览器边框后再上传。");
     }
     throw new Error(apiMessage);
   }
