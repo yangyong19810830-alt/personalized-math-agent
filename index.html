@@ -1591,7 +1591,7 @@
       const kindText = `${diagram?.figure?.kind || ""} ${diagram?.demoType || ""} ${diagram?.title || ""}`;
       const kind = /circle|圆|切线|弦/.test(kindText)
         ? "circle"
-        : (/trapezoid|梯形/.test(kindText) ? "trapezoid" : (/quadrilateral|四边形|矩形|平行四边形/.test(kindText) ? "quadrilateral" : "triangle"));
+        : (/trapezoid|梯形/.test(kindText) ? "trapezoid" : (/parallelogram|平行四边形/.test(kindText) ? "parallelogram" : (/quadrilateral|四边形|矩形/.test(kindText) ? "quadrilateral" : "triangle")));
       const defaults = {
         circle: {
           labels: ["O", "P", "A", "B", "C"],
@@ -1602,6 +1602,11 @@
           labels: ["A", "B", "C", "D", "E"],
           points: { A: [58, 178], B: [252, 178], C: [210, 72], D: [112, 72], E: [210, 178] },
           segments: [["A", "B"], ["B", "C"], ["C", "D"], ["D", "A"], ["A", "C"], ["C", "E"]]
+        },
+        parallelogram: {
+          labels: ["A", "B", "C", "D", "O"],
+          points: { A: [58, 178], B: [238, 178], C: [268, 76], D: [88, 76], O: [163, 127] },
+          segments: [["A", "B"], ["B", "C"], ["C", "D"], ["D", "A"], ["A", "C"], ["B", "D"]]
         },
         quadrilateral: {
           labels: ["A", "B", "C", "D", "E"],
@@ -1655,6 +1660,7 @@
       if (relation.type === "equalAngle" && relation.a && relation.b) return `${relation.a} = ${relation.b}`;
       if (relation.type === "pointOn" && relation.point && relation.line) return `${relation.point} 在 ${relation.line} 上`;
       if (relation.type === "tangent" && relation.a) return `${relation.a} 为切线`;
+      if (relation.type === "formula" && relation.label) return relation.label;
       return [relation.a, relation.type, relation.b].filter(Boolean).join(" ");
     }
 
@@ -1745,6 +1751,213 @@
           </g>
         </svg>`,
         "这张图只表达一个核心区别：周长是边界一圈的长度，面积是内部铺满多少个单位小方格。",
+        `<button class="btn" type="button" data-replay-diagram>重新播放</button>`
+      );
+    }
+
+    function renderPlaneShapeDiagram(diagram) {
+      const title = escapeHtml(diagram?.title || "平面图形结构示意图");
+      const kind = String(diagram?.figure?.kind || "");
+      const parts = Array.isArray(diagram?.figure?.parts) ? diagram.figure.parts.slice(0, 4) : [];
+      const formulas = Array.isArray(diagram?.figure?.formulas) ? diagram.figure.formulas.slice(0, 3) : [];
+      let shapeSvg = "";
+      if (kind === "sector") {
+        shapeSvg = `
+          <path d="M160 140 L160 50 A90 90 0 0 1 238 185 Z" fill="#eff6ff" stroke="#1d4ed8" stroke-width="2.3"/>
+          <circle cx="160" cy="140" r="3.8" fill="#0f766e"/>
+          <path d="M178 139 A24 24 0 0 1 184 117" fill="none" stroke="#f97316" stroke-width="2.5"/>
+          <text x="146" y="154" font-size="12" fill="#0f766e">O</text>
+          <text x="166" y="88" font-size="12" fill="#0f766e">半径 r</text>
+          <text x="193" y="126" font-size="12" fill="#9a3412">圆心角 θ</text>
+          <text x="206" y="78" font-size="12" fill="#667085">弧</text>
+        `;
+      } else if (kind === "annulus") {
+        shapeSvg = `
+          <circle cx="160" cy="130" r="82" fill="#eff6ff" stroke="#1d4ed8" stroke-width="2.3"/>
+          <circle cx="160" cy="130" r="42" fill="#fff" stroke="#0f766e" stroke-width="2.1"/>
+          <line x1="160" y1="130" x2="236" y2="100" stroke="#1d4ed8" stroke-width="2.2"/>
+          <line x1="160" y1="130" x2="198" y2="148" stroke="#0f766e" stroke-width="2.2"/>
+          <text x="203" y="98" font-size="12" fill="#1d4ed8">外半径 R</text>
+          <text x="186" y="166" font-size="12" fill="#0f766e">内半径 r</text>
+          <text x="160" y="130" text-anchor="middle" font-size="12" fill="#475467">O</text>
+        `;
+      } else if (kind === "semicircle") {
+        shapeSvg = `
+          <path d="M70 170 A90 90 0 0 1 250 170" fill="#eff6ff" stroke="#1d4ed8" stroke-width="2.3"/>
+          <line x1="70" y1="170" x2="250" y2="170" stroke="#1d4ed8" stroke-width="2.3"/>
+          <line x1="160" y1="170" x2="250" y2="170" stroke="#0f766e" stroke-width="2.2"/>
+          <circle cx="160" cy="170" r="3.5" fill="#0f766e"/>
+          <text x="160" y="188" text-anchor="middle" font-size="12" fill="#667085">直径 d</text>
+          <text x="202" y="160" font-size="12" fill="#0f766e">半径 r</text>
+          <text x="160" y="82" text-anchor="middle" font-size="12" fill="#667085">半圆弧</text>
+        `;
+      } else if (kind === "rhombus") {
+        shapeSvg = `
+          <polygon points="160,42 250,128 160,214 70,128" fill="#eff6ff" stroke="#1d4ed8" stroke-width="2.3"/>
+          <line x1="160" y1="42" x2="160" y2="214" stroke="#0f766e" stroke-width="2.2" stroke-dasharray="5 4"/>
+          <line x1="70" y1="128" x2="250" y2="128" stroke="#6d28d9" stroke-width="2.2" stroke-dasharray="5 4"/>
+          <path d="M154 122 H166 V134" fill="none" stroke="#f97316" stroke-width="2"/>
+          <text x="160" y="34" text-anchor="middle" font-size="12" fill="#1f2937">四边相等</text>
+          <text x="168" y="96" font-size="12" fill="#0f766e">对角线互相垂直</text>
+        `;
+      } else if (kind === "isoscelesTrapezoid" || kind === "rightTrapezoid") {
+        const path = kind === "rightTrapezoid" ? "M72 178 L252 178 L206 72 L72 72 Z" : "M58 178 L262 178 L212 72 L108 72 Z";
+        const heightX = kind === "rightTrapezoid" ? 72 : 212;
+        shapeSvg = `
+          <path d="${path}" fill="#eff6ff" stroke="#1d4ed8" stroke-width="2.3"/>
+          <line x1="${heightX}" y1="72" x2="${heightX}" y2="178" stroke="#0f766e" stroke-width="2.4"/>
+          <path d="M${heightX} 160 h18 v18" fill="none" stroke="#f97316" stroke-width="2"/>
+          <text x="160" y="64" text-anchor="middle" font-size="12" fill="#1f2937">上底</text>
+          <text x="160" y="198" text-anchor="middle" font-size="12" fill="#1f2937">下底</text>
+          <text x="${heightX + 8}" y="128" font-size="12" fill="#0f766e">高 h</text>
+        `;
+      } else if (kind === "regularPolygon") {
+        shapeSvg = `
+          <polygon points="160,42 230,82 230,162 160,206 90,162 90,82" fill="#eff6ff" stroke="#1d4ed8" stroke-width="2.3"/>
+          <circle cx="160" cy="124" r="3.6" fill="#0f766e"/>
+          <line x1="160" y1="124" x2="230" y2="82" stroke="#0f766e" stroke-width="1.9" stroke-dasharray="5 4"/>
+          <line x1="160" y1="124" x2="160" y2="42" stroke="#0f766e" stroke-width="1.9" stroke-dasharray="5 4"/>
+          <text x="168" y="120" font-size="12" fill="#0f766e">中心</text>
+          <text x="160" y="224" text-anchor="middle" font-size="12" fill="#667085">可分成若干全等三角形</text>
+        `;
+      } else if (kind === "composite") {
+        shapeSvg = `
+          <rect x="72" y="80" width="136" height="104" fill="#eff6ff" stroke="#1d4ed8" stroke-width="2.3"/>
+          <path d="M208 184 A52 52 0 0 0 208 80" fill="#fff7ed" stroke="#f97316" stroke-width="2.3"/>
+          <line x1="208" y1="80" x2="208" y2="184" stroke="#0f766e" stroke-width="2" stroke-dasharray="5 4"/>
+          <rect x="94" y="102" width="42" height="42" fill="#fff" stroke="#6d28d9" stroke-width="2" stroke-dasharray="5 4"/>
+          <text x="132" y="68" text-anchor="middle" font-size="12" fill="#1d4ed8">大区域</text>
+          <text x="234" y="134" font-size="12" fill="#9a3412">加/减部分</text>
+          <text x="116" y="158" font-size="12" fill="#6d28d9">挖去</text>
+        `;
+      } else if (kind === "symmetry") {
+        shapeSvg = `
+          <line x1="160" y1="42" x2="160" y2="210" stroke="#0f766e" stroke-width="2.3" stroke-dasharray="6 5"/>
+          <path d="M92 88 C126 66, 144 96, 124 132 C112 154, 124 182, 92 194 Z" fill="#eff6ff" stroke="#1d4ed8" stroke-width="2.3"/>
+          <path d="M228 88 C194 66, 176 96, 196 132 C208 154, 196 182, 228 194 Z" fill="#eff6ff" stroke="#1d4ed8" stroke-width="2.3"/>
+          <line x1="112" y1="132" x2="208" y2="132" stroke="#f97316" stroke-width="2" stroke-dasharray="5 4"/>
+          <text x="166" y="58" font-size="12" fill="#0f766e">对称轴</text>
+          <text x="160" y="224" text-anchor="middle" font-size="12" fill="#667085">对应点到对称轴距离相等</text>
+        `;
+      } else if (kind === "translation") {
+        shapeSvg = `
+          <defs><marker id="planeArrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#0f766e"></path></marker></defs>
+          <rect x="66" y="82" width="76" height="62" fill="#eff6ff" stroke="#1d4ed8" stroke-width="2.3"/>
+          <rect x="188" y="126" width="76" height="62" fill="#f8fafc" stroke="#1d4ed8" stroke-width="2.3"/>
+          <path d="M148 120 C164 122, 174 132, 184 144" fill="none" stroke="#0f766e" stroke-width="2.4" marker-end="url(#planeArrow)"/>
+          <text x="104" y="74" text-anchor="middle" font-size="12" fill="#1f2937">原图形</text>
+          <text x="226" y="208" text-anchor="middle" font-size="12" fill="#1f2937">平移后</text>
+          <text x="160" y="104" font-size="12" fill="#0f766e">方向和距离相同</text>
+        `;
+      } else if (kind === "rotation") {
+        shapeSvg = `
+          <defs><marker id="planeRotateArrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#0f766e"></path></marker></defs>
+          <circle cx="160" cy="132" r="3.8" fill="#0f766e"/>
+          <text x="168" y="128" font-size="12" fill="#0f766e">O</text>
+          <path d="M110 168 L146 82 L180 168 Z" fill="#eff6ff" stroke="#1d4ed8" stroke-width="2.2"/>
+          <path d="M178 176 L236 110 L248 204 Z" fill="#f8fafc" stroke="#6d28d9" stroke-width="2.2"/>
+          <path d="M112 90 A78 78 0 0 1 232 92" fill="none" stroke="#0f766e" stroke-width="2.4" marker-end="url(#planeRotateArrow)"/>
+          <text x="160" y="64" text-anchor="middle" font-size="12" fill="#0f766e">绕中心旋转一个角</text>
+        `;
+      } else if (kind === "similarity") {
+        shapeSvg = `
+          <defs><marker id="planeScaleArrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#0f766e"></path></marker></defs>
+          <path d="M72 174 L142 174 L106 96 Z" fill="#eff6ff" stroke="#1d4ed8" stroke-width="2.3"/>
+          <path d="M176 190 L276 190 L226 78 Z" fill="#f8fafc" stroke="#6d28d9" stroke-width="2.3"/>
+          <path d="M144 136 C160 126, 164 124, 178 126" fill="none" stroke="#0f766e" stroke-width="2.4" marker-end="url(#planeScaleArrow)"/>
+          <text x="108" y="194" text-anchor="middle" font-size="12" fill="#1d4ed8">原图形</text>
+          <text x="226" y="214" text-anchor="middle" font-size="12" fill="#6d28d9">按比例 k 放大</text>
+          <text x="160" y="54" text-anchor="middle" font-size="12" fill="#0f766e">对应角相等，对应边成比例</text>
+        `;
+      } else {
+        shapeSvg = `
+          <path d="M58 178 L252 178 L210 72 L112 72 Z" fill="#eff6ff" stroke="#1d4ed8" stroke-width="2.3"/>
+          <line x1="210" y1="72" x2="210" y2="178" stroke="#0f766e" stroke-width="2.4"/>
+          <text x="160" y="210" text-anchor="middle" font-size="12" fill="#667085">先看边、角、高和面积关系</text>
+        `;
+      }
+      const formulaHtml = formulas.map((formula, index) => `
+        <g class="diagram-node diagram-focus" style="--delay:${1050 + index * 220}ms">
+          <rect x="18" y="${14 + index * 28}" width="142" height="22" rx="7" fill="${index === 0 ? "#ecfdf3" : "#fff7ed"}" stroke="${index === 0 ? "#15803d" : "#f97316"}"/>
+          <text x="89" y="${29 + index * 28}" text-anchor="middle" font-size="10.5" fill="${index === 0 ? "#15803d" : "#9a3412"}">${safeDiagramText(formula)}</text>
+        </g>
+      `).join("");
+      const partsText = parts.length ? parts.join("；") : "先看对象、组成、关系和公式入口。";
+      visualCard(
+        title,
+        `<svg viewBox="0 0 320 250" role="img" aria-label="平面图形结构示意图">
+          <g class="diagram-node" style="--delay:0ms">${shapeSvg}</g>
+          ${formulaHtml}
+        </svg>`,
+        escapeHtml(diagram?.note || `关键组成：${partsText}`),
+        `<button class="btn" type="button" data-replay-diagram>重新播放</button>`
+      );
+    }
+
+    function renderSolidShapeDiagram(diagram) {
+      const title = escapeHtml(diagram?.title || "立体图形结构示意图");
+      const kind = String(diagram?.figure?.kind || "");
+      const parts = Array.isArray(diagram?.figure?.parts) ? diagram.figure.parts.slice(0, 4) : [];
+      const formulas = Array.isArray(diagram?.figure?.formulas) ? diagram.figure.formulas.slice(0, 3) : [];
+      let shapeSvg = "";
+      if (kind === "cone") {
+        shapeSvg = `
+          <ellipse cx="156" cy="184" rx="78" ry="24" fill="#eff6ff" stroke="#1d4ed8" stroke-width="2.2"/>
+          <path d="M78 184 L156 40 L234 184" fill="rgba(239,246,255,.55)" stroke="#1d4ed8" stroke-width="2.2"/>
+          <line x1="156" y1="40" x2="156" y2="184" stroke="#0f766e" stroke-width="2.4" stroke-dasharray="5 4"/>
+          <line x1="156" y1="40" x2="234" y2="184" stroke="#6d28d9" stroke-width="2"/>
+          <text x="164" y="115" font-size="12" fill="#0f766e">高 h</text>
+          <text x="204" y="104" font-size="12" fill="#6d28d9">母线 l</text>
+          <text x="156" y="216" text-anchor="middle" font-size="12" fill="#667085">圆锥：一个圆形底面和一个顶点</text>
+        `;
+      } else if (kind === "cube" || kind === "cuboid") {
+        const backW = kind === "cube" ? 94 : 120;
+        const frontW = kind === "cube" ? 94 : 150;
+        shapeSvg = `
+          <polygon points="84,88 ${84 + backW},88 ${210 + backW - 94},132 210,132" fill="#eff6ff" stroke="#1d4ed8" stroke-width="2"/>
+          <rect x="62" y="132" width="${frontW}" height="78" fill="#f8fafc" stroke="#1d4ed8" stroke-width="2.2"/>
+          <line x1="62" y1="132" x2="84" y2="88" stroke="#1d4ed8" stroke-width="2"/>
+          <line x1="${62 + frontW}" y1="132" x2="${84 + backW}" y2="88" stroke="#1d4ed8" stroke-width="2"/>
+          <line x1="${62 + frontW}" y1="210" x2="${210 + backW - 94}" y2="166" stroke="#1d4ed8" stroke-width="2"/>
+          <line x1="${210 + backW - 94}" y1="132" x2="${210 + backW - 94}" y2="166" stroke="#1d4ed8" stroke-width="2"/>
+          <text x="${62 + frontW / 2}" y="228" text-anchor="middle" font-size="12" fill="#667085">${kind === "cube" ? "正方体：长、宽、高都相等" : "长方体：看长、宽、高三个方向"}</text>
+          <text x="${62 + frontW / 2}" y="128" text-anchor="middle" font-size="12" fill="#0f766e">${kind === "cube" ? "棱长 a" : "长 a"}</text>
+          <text x="${62 + frontW + 8}" y="174" font-size="12" fill="#0f766e">高 h</text>
+        `;
+      } else if (kind === "sphere") {
+        shapeSvg = `
+          <circle cx="156" cy="128" r="74" fill="#eff6ff" stroke="#1d4ed8" stroke-width="2.2"/>
+          <ellipse cx="156" cy="128" rx="74" ry="24" fill="none" stroke="#98a2b3" stroke-width="1.7" stroke-dasharray="5 4"/>
+          <circle cx="156" cy="128" r="3.5" fill="#0f766e"/>
+          <line x1="156" y1="128" x2="226" y2="104" stroke="#0f766e" stroke-width="2.4"/>
+          <text x="162" y="122" font-size="12" fill="#0f766e">O</text>
+          <text x="190" y="107" font-size="12" fill="#0f766e">半径 r</text>
+          <text x="156" y="222" text-anchor="middle" font-size="12" fill="#667085">球：表面点到球心距离都相等</text>
+        `;
+      } else {
+        shapeSvg = `
+          <ellipse cx="156" cy="72" rx="74" ry="22" fill="#eff6ff" stroke="#1d4ed8" stroke-width="2.2"/>
+          <path d="M82 72 L82 180 C82 194, 230 194, 230 180 L230 72" fill="rgba(239,246,255,.55)" stroke="#1d4ed8" stroke-width="2.2"/>
+          <ellipse cx="156" cy="180" rx="74" ry="22" fill="#f8fafc" stroke="#1d4ed8" stroke-width="2.2"/>
+          <line x1="246" y1="72" x2="246" y2="180" stroke="#0f766e" stroke-width="2.4"/>
+          <text x="252" y="130" font-size="12" fill="#0f766e">高 h</text>
+          <text x="156" y="218" text-anchor="middle" font-size="12" fill="#667085">圆柱：两个相同底面加一条高</text>
+        `;
+      }
+      const formulaHtml = formulas.map((formula, index) => `
+        <g class="diagram-node diagram-focus" style="--delay:${1100 + index * 220}ms">
+          <rect x="18" y="${14 + index * 28}" width="132" height="22" rx="7" fill="${index === 0 ? "#ecfdf3" : "#fff7ed"}" stroke="${index === 0 ? "#15803d" : "#f97316"}"/>
+          <text x="84" y="${29 + index * 28}" text-anchor="middle" font-size="10.5" fill="${index === 0 ? "#15803d" : "#9a3412"}">${safeDiagramText(formula)}</text>
+        </g>
+      `).join("");
+      const partsText = parts.length ? parts.join("；") : "先看底面、高、半径或棱长。";
+      visualCard(
+        title,
+        `<svg viewBox="0 0 320 250" role="img" aria-label="立体图形结构示意图">
+          <g class="diagram-node" style="--delay:0ms">${shapeSvg}</g>
+          ${formulaHtml}
+        </svg>`,
+        escapeHtml(diagram?.note || `关键组成：${partsText}`),
         `<button class="btn" type="button" data-replay-diagram>重新播放</button>`
       );
     }
@@ -1913,6 +2126,14 @@
       }
       if (/rectangle-measure/.test(demoType)) {
         renderRectangleMeasureDiagram(diagram);
+        return;
+      }
+      if (/plane-shape/.test(demoType)) {
+        renderPlaneShapeDiagram(diagram);
+        return;
+      }
+      if (/solid-shape/.test(demoType)) {
+        renderSolidShapeDiagram(diagram);
         return;
       }
       if (/geometry-semantic|geometry-example/.test(demoType)) {
