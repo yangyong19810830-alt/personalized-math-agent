@@ -1583,6 +1583,172 @@
       return unique.length ? [...unique, ...fallback].slice(0, fallback.length) : fallback;
     }
 
+    function safeDiagramText(value, fallback = "") {
+      return escapeHtml(String(value || fallback || "").slice(0, 32));
+    }
+
+    function defaultGeometryModel(diagram) {
+      const kindText = `${diagram?.figure?.kind || ""} ${diagram?.demoType || ""} ${diagram?.title || ""}`;
+      const kind = /circle|圆|切线|弦/.test(kindText)
+        ? "circle"
+        : (/trapezoid|梯形/.test(kindText) ? "trapezoid" : (/quadrilateral|四边形|矩形|平行四边形/.test(kindText) ? "quadrilateral" : "triangle"));
+      const defaults = {
+        circle: {
+          labels: ["O", "P", "A", "B", "C"],
+          points: { O: [170, 122], P: [58, 174], A: [126, 180], B: [214, 76], C: [252, 122] },
+          segments: [["P", "A"], ["O", "A"], ["A", "B"], ["P", "B"]]
+        },
+        trapezoid: {
+          labels: ["A", "B", "C", "D", "E"],
+          points: { A: [58, 178], B: [252, 178], C: [210, 72], D: [112, 72], E: [210, 178] },
+          segments: [["A", "B"], ["B", "C"], ["C", "D"], ["D", "A"], ["A", "C"], ["C", "E"]]
+        },
+        quadrilateral: {
+          labels: ["A", "B", "C", "D", "E"],
+          points: { A: [62, 176], B: [238, 176], C: [218, 66], D: [88, 76], E: [153, 113] },
+          segments: [["A", "B"], ["B", "C"], ["C", "D"], ["D", "A"], ["A", "C"], ["B", "D"]]
+        },
+        triangle: {
+          labels: ["A", "B", "C", "D", "E"],
+          points: { A: [62, 178], B: [252, 178], C: [156, 50], D: [156, 178], E: [200, 110] },
+          segments: [["A", "B"], ["B", "C"], ["C", "A"], ["C", "D"], ["A", "E"]]
+        }
+      };
+      const model = defaults[kind];
+      const labels = diagramFigureLabels(diagram, model.labels);
+      const labelMap = new Map(model.labels.map((label, index) => [label, labels[index] || label]));
+      const points = {};
+      Object.entries(model.points).forEach(([label, coords]) => {
+        points[labelMap.get(label) || label] = coords;
+      });
+      const segments = model.segments.map(([from, to]) => [labelMap.get(from) || from, labelMap.get(to) || to]);
+      return { kind, labels, points, segments };
+    }
+
+    function geometryFigureData(diagram) {
+      const fallback = defaultGeometryModel(diagram);
+      const rawPoints = Array.isArray(diagram?.figure?.points) ? diagram.figure.points : [];
+      const points = { ...fallback.points };
+      rawPoints.forEach(point => {
+        const id = String(point?.id || point?.label || "").trim();
+        const x = Number(point?.x);
+        const y = Number(point?.y);
+        if (id && Number.isFinite(x) && Number.isFinite(y)) {
+          points[id] = [Math.max(20, Math.min(300, x)), Math.max(20, Math.min(220, y))];
+        }
+      });
+      const rawSegments = Array.isArray(diagram?.figure?.segments) ? diagram.figure.segments : [];
+      const segments = rawSegments.length
+        ? rawSegments.map(segment => [String(segment.from || segment.a || ""), String(segment.to || segment.b || "")]).filter(([from, to]) => points[from] && points[to]).slice(0, 18)
+        : fallback.segments;
+      const relations = Array.isArray(diagram?.figure?.relations) ? diagram.figure.relations.slice(0, 6) : [];
+      const circles = Array.isArray(diagram?.figure?.circles) ? diagram.figure.circles.slice(0, 3) : [];
+      return { ...fallback, points, segments, relations, circles };
+    }
+
+    function relationText(relation) {
+      if (!relation) return "";
+      if (relation.label) return String(relation.label);
+      if (relation.type === "perpendicular" && relation.a && relation.b) return `${relation.a} ⟂ ${relation.b}`;
+      if (relation.type === "parallel" && relation.a && relation.b) return `${relation.a} ∥ ${relation.b}`;
+      if (relation.type === "equal" && relation.a && relation.b) return `${relation.a} = ${relation.b}`;
+      if (relation.type === "equalAngle" && relation.a && relation.b) return `${relation.a} = ${relation.b}`;
+      if (relation.type === "pointOn" && relation.point && relation.line) return `${relation.point} 在 ${relation.line} 上`;
+      if (relation.type === "tangent" && relation.a) return `${relation.a} 为切线`;
+      return [relation.a, relation.type, relation.b].filter(Boolean).join(" ");
+    }
+
+    function renderSemanticGeometryDiagram(diagram) {
+      const title = escapeHtml(diagram?.title || "几何结构示意图");
+      const data = geometryFigureData(diagram);
+      const pointEntries = Object.entries(data.points);
+      const segmentSvg = data.segments.map(([from, to], index) => {
+        const a = data.points[from];
+        const b = data.points[to];
+        if (!a || !b) return "";
+        return `<line class="diagram-edge" pathLength="1" style="--delay:${index * 180}ms" x1="${a[0]}" y1="${a[1]}" x2="${b[0]}" y2="${b[1]}" stroke="${index < 4 ? "#1d4ed8" : "#6d28d9"}" stroke-width="${index < 4 ? "2.2" : "1.8"}" ${index >= 4 ? 'stroke-dasharray="5 4"' : ""}/>`;
+      }).join("");
+      const circleSvg = (data.kind === "circle" ? [{ center: "O" }] : data.circles).map((circle, index) => {
+        const center = data.points[circle.center] || data.points.O || [170, 122];
+        const through = data.points[circle.through] || data.points.A;
+        const radius = through ? Math.max(36, Math.min(82, Math.hypot(center[0] - through[0], center[1] - through[1]))) : 62;
+        return `<circle class="diagram-node" style="--delay:${index * 220}ms" cx="${center[0]}" cy="${center[1]}" r="${radius}" fill="#eff6ff" stroke="#1d4ed8" stroke-width="2.1"/>`;
+      }).join("");
+      const pointsSvg = pointEntries.map(([label, coords], index) => `
+        <g class="diagram-node" style="--delay:${560 + index * 90}ms">
+          <circle cx="${coords[0]}" cy="${coords[1]}" r="3.6" fill="#0f766e"/>
+          <text x="${coords[0] + 7}" y="${coords[1] - 7}" font-size="12" fill="#1f2937">${safeDiagramText(label)}</text>
+        </g>
+      `).join("");
+      const relationLabels = data.relations.map(relationText).filter(Boolean).slice(0, 5);
+      const relationSvg = relationLabels.map((label, index) => {
+        const x = 18 + (index % 2) * 146;
+        const y = 18 + Math.floor(index / 2) * 28;
+        return `<g class="diagram-node diagram-focus" style="--delay:${1200 + index * 180}ms">
+          <rect x="${x}" y="${y}" width="132" height="22" rx="7" fill="#fff7ed" stroke="#f97316"/>
+          <text x="${x + 66}" y="${y + 15}" text-anchor="middle" font-size="11" fill="#9a3412">${safeDiagramText(label, "关系")}</text>
+        </g>`;
+      }).join("");
+      const legend = relationLabels.length
+        ? `根据题目文字识别到这些关系：${relationLabels.join("；")}。这仍是辅助示意图，最终以原题条件为准。`
+        : "这是按题目文字生成的几何结构示意图；如果题目没有明确给出某个关系，图中不会把它当成已知。";
+      visualCard(
+        title,
+        `<svg viewBox="0 0 320 250" role="img" aria-label="几何结构示意图">
+          ${circleSvg}
+          ${segmentSvg}
+          ${pointsSvg}
+          ${relationSvg}
+          <text x="160" y="232" text-anchor="middle" font-size="12" fill="#667085">点线位置为辅助示意，重点看已知关系是否对应</text>
+        </svg>`,
+        escapeHtml(diagram?.note || legend),
+        `<button class="btn" type="button" data-replay-diagram>重新播放</button>`
+      );
+    }
+
+    function renderRectangleMeasureDiagram(diagram) {
+      const title = escapeHtml(diagram?.title || "长方形周长与面积示意图");
+      const isSquare = /square|正方形/.test(`${diagram?.figure?.kind || ""} ${diagram?.title || ""}`);
+      const lengthLabel = isSquare ? "边长 a" : "长 a";
+      const widthLabel = isSquare ? "边长 a" : "宽 b";
+      const perimeterFormula = isSquare ? "周长 = 4 × a" : "周长 = (a + b) × 2";
+      const areaFormula = isSquare ? "面积 = a × a" : "面积 = a × b";
+      visualCard(
+        title,
+        `<svg viewBox="0 0 320 250" role="img" aria-label="长方形周长与面积示意图">
+          <defs>
+            <marker id="rectArrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+              <path d="M0,0 L8,4 L0,8 z" fill="#0f766e"></path>
+            </marker>
+          </defs>
+          <g class="diagram-node" style="--delay:0ms">
+            <rect x="62" y="58" width="190" height="${isSquare ? 130 : 112}" rx="2" fill="#eff6ff" stroke="#1d4ed8" stroke-width="2.4"/>
+            <line x1="62" y1="58" x2="252" y2="58" stroke="#f97316" stroke-width="4"/>
+            <line x1="252" y1="58" x2="252" y2="${isSquare ? 188 : 170}" stroke="#f97316" stroke-width="4"/>
+            <line x1="252" y1="${isSquare ? 188 : 170}" x2="62" y2="${isSquare ? 188 : 170}" stroke="#f97316" stroke-width="4"/>
+            <line x1="62" y1="${isSquare ? 188 : 170}" x2="62" y2="58" stroke="#f97316" stroke-width="4"/>
+            <text x="157" y="48" text-anchor="middle" font-size="13" fill="#9a3412">${escapeHtml(lengthLabel)}</text>
+            <text x="266" y="${isSquare ? 126 : 116}" font-size="13" fill="#9a3412">${escapeHtml(widthLabel)}</text>
+            <text x="157" y="216" text-anchor="middle" font-size="12" fill="#667085">周长看外面一圈</text>
+          </g>
+          <g class="diagram-node" style="--delay:560ms">
+            <path d="M78 74 H236 M78 94 H236 M78 114 H236 M78 134 H236 M78 154 H236" stroke="#98a2b3" stroke-width="1" stroke-dasharray="3 4"/>
+            <path d="M92 66 V${isSquare ? 180 : 162} M116 66 V${isSquare ? 180 : 162} M140 66 V${isSquare ? 180 : 162} M164 66 V${isSquare ? 180 : 162} M188 66 V${isSquare ? 180 : 162} M212 66 V${isSquare ? 180 : 162}" stroke="#98a2b3" stroke-width="1" stroke-dasharray="3 4"/>
+            <rect x="118" y="96" width="78" height="42" rx="8" fill="#eef8f6" stroke="#0f766e"/>
+            <text x="157" y="121" text-anchor="middle" font-size="12" fill="#0f766e">面积看里面</text>
+          </g>
+          <g class="diagram-node diagram-focus" style="--delay:1160ms">
+            <rect x="28" y="12" width="118" height="28" rx="8" fill="#fff7ed" stroke="#f97316"/>
+            <text x="87" y="31" text-anchor="middle" font-size="12" fill="#9a3412">${escapeHtml(perimeterFormula)}</text>
+            <rect x="174" y="12" width="118" height="28" rx="8" fill="#ecfdf3" stroke="#15803d"/>
+            <text x="233" y="31" text-anchor="middle" font-size="12" fill="#15803d">${escapeHtml(areaFormula)}</text>
+          </g>
+        </svg>`,
+        "这张图只表达一个核心区别：周长是边界一圈的长度，面积是内部铺满多少个单位小方格。",
+        `<button class="btn" type="button" data-replay-diagram>重新播放</button>`
+      );
+    }
+
     function renderGeometryExampleDiagram(diagram) {
       const title = escapeHtml(diagram?.title || "几何例题示意图");
       const kindText = `${diagram?.figure?.kind || ""} ${diagram?.demoType || ""}`;
@@ -1745,8 +1911,12 @@
         renderFunctionConceptDiagram(diagram);
         return;
       }
-      if (/geometry-example/.test(demoType)) {
-        renderGeometryExampleDiagram(diagram);
+      if (/rectangle-measure/.test(demoType)) {
+        renderRectangleMeasureDiagram(diagram);
+        return;
+      }
+      if (/geometry-semantic|geometry-example/.test(demoType)) {
+        renderSemanticGeometryDiagram(diagram);
         return;
       }
       if (/geometry-knowledge/.test(demoType)) {

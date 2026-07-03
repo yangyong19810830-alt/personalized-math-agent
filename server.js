@@ -5,7 +5,7 @@ const crypto = require("crypto");
 
 const PORT = Number(process.env.PORT || 8787);
 const ROOT = __dirname;
-const APP_VERSION = "sde-knowledge-20260703-auto-geometry-example";
+const APP_VERSION = "sde-knowledge-20260703-geometry-json-svg";
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || "";
 const DEEPSEEK_BASE_URL = (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com").replace(/\/$/, "");
 const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || "deepseek-v4-pro";
@@ -758,6 +758,7 @@ function normalizeDiagram(value) {
   const diagram = value && typeof value === "object" ? value : {};
   const nodes = Array.isArray(diagram.nodes) ? diagram.nodes : [];
   const edges = Array.isArray(diagram.edges) ? diagram.edges : [];
+  const demoType = String(diagram.demoType || "").toLowerCase();
   const cleanNodes = nodes.slice(0, 9).map((node, index) => ({
     id: String(node.id || `n${index + 1}`),
     label: String(node.label || `步骤 ${index + 1}`).slice(0, 32),
@@ -774,10 +775,52 @@ function normalizeDiagram(value) {
 
   return {
     title: String(diagram.title || "解题结构图").slice(0, 40),
-    demoType: ["geometry"].includes(String(diagram.demoType || "").toLowerCase()) ? String(diagram.demoType).toLowerCase() : "",
+    demoType: /^(geometry|geometry-semantic|geometry-example-[a-z-]+|rectangle-measure|function-concept|sequence-concept|geometry-knowledge)$/.test(demoType) ? demoType : "",
+    figure: normalizeFigure(diagram.figure),
     nodes: cleanNodes,
     edges: cleanEdges
   };
+}
+
+function normalizeFigure(value) {
+  if (!value || typeof value !== "object") return null;
+  const cleanText = (text, limit = 24) => String(text || "").replace(/[^\w\u4e00-\u9fa5⊥∥=∠△⊙.-]/g, "").slice(0, limit);
+  const kind = cleanText(value.kind || "", 20);
+  const labels = Array.isArray(value.labels)
+    ? value.labels.map(label => cleanText(label, 8)).filter(Boolean).slice(0, 12)
+    : [];
+  const points = Array.isArray(value.points)
+    ? value.points.map(point => ({
+      id: cleanText(point.id || point.label, 8),
+      x: Number(point.x),
+      y: Number(point.y)
+    })).filter(point => point.id && Number.isFinite(point.x) && Number.isFinite(point.y)).slice(0, 12)
+    : [];
+  const segments = Array.isArray(value.segments)
+    ? value.segments.map(segment => ({
+      from: cleanText(segment.from || segment.a, 8),
+      to: cleanText(segment.to || segment.b, 8),
+      label: cleanText(segment.label || "", 16)
+    })).filter(segment => segment.from && segment.to).slice(0, 18)
+    : [];
+  const circles = Array.isArray(value.circles)
+    ? value.circles.map(circle => ({
+      center: cleanText(circle.center || "O", 8),
+      through: cleanText(circle.through || "", 8),
+      label: cleanText(circle.label || "", 16)
+    })).filter(circle => circle.center).slice(0, 4)
+    : [];
+  const relations = Array.isArray(value.relations)
+    ? value.relations.map(relation => ({
+      type: cleanText(relation.type || "", 18),
+      a: cleanText(relation.a || relation.left || "", 12),
+      b: cleanText(relation.b || relation.right || "", 12),
+      point: cleanText(relation.point || "", 8),
+      line: cleanText(relation.line || "", 12),
+      label: String(relation.label || "").replace(/[<>{}]/g, "").slice(0, 32)
+    })).filter(relation => relation.type || relation.label || relation.a || relation.b).slice(0, 12)
+    : [];
+  return { kind, labels, points, segments, circles, relations };
 }
 
 function latestUserText(messages) {
@@ -821,7 +864,15 @@ function isPracticeRequest(messages) {
 function isLearningPlanRequest(messages, profile = {}) {
   const latest = latestUserText(messages);
   if (["daily_plan", "system_plan", "lesson_start"].includes(profile?.intent)) return true;
+  if (isKnowledgeLessonRequest(messages)) return true;
   return /学习计划|系统规划|系统化|规划|路线|路线图|今天.*学习|安排.*学习|知识点学习|开始.*学习|一节课|学什么|怎么学|小学.*数学|初中.*数学|高中.*数学|大学.*数学|家长.*指导|练习安排/.test(latest);
+}
+
+function isKnowledgeLessonRequest(messages) {
+  const latest = latestUserText(messages);
+  if (!latest || isPlanningText(latest) || isPracticeRequest(messages) || isNewProblemInput(latest)) return false;
+  return /我想学|想学习|学习一下|学一下|教我|讲讲|讲一下|开始学|知识点/.test(latest)
+    && /长方形|正方形|周长|面积|体积|函数|几何|三角形|四边形|圆|数列|概率|方程|不等式|分数|小数|百分数|导数/.test(latest);
 }
 
 function fallbackLearningPlanReply(messages, profile = {}) {
@@ -856,8 +907,8 @@ function directQuestionLine(messages) {
 
 function learningPlanLine(messages, profile = {}) {
   if (!isLearningPlanRequest(messages, profile)) return "";
-  if (profile?.intent === "lesson_start") {
-    return "当前用户要开始知识点学习，不是在解题作答。请直接设计一节小课：选择一个最适合当前画像的知识点；说明为什么先学它；用一个熟悉场景引入；讲核心结构；给 3 道练习，分别是基础、迁移、表达复述；最后问学生愿意先做哪一道。不要机械追问已知什么求什么。";
+  if (profile?.intent === "lesson_start" || isKnowledgeLessonRequest(messages)) {
+    return "当前用户要开始知识点学习，不是在解题作答。请直接设计一节小课：如果用户已经指定知识点，就围绕该知识点讲；否则选择一个最适合当前画像的知识点。先说明为什么学它，再讲核心结构，必要时配一个具体例子和 2-3 道练习。不要机械追问已知什么求什么，不要把用户当成已经答错的学生。";
   }
   if (profile?.intent === "daily_plan") {
     return "当前用户要安排今天的数学学习，不是在解题作答。请给一份当天可执行安排：目标、学习知识点、15-30分钟学习流程、练习题类型、复述任务、家长观察点。不要泛泛鼓励。";
@@ -914,7 +965,7 @@ function needsChoiceScaffold(messages) {
   const recent = historyText(messages, 8);
   const userTurns = messages.filter(message => message.role === "user").length;
   if (userTurns < 2) return false;
-  if (isDirectUserQuestion(messages) || isPracticeRequest(messages) || isLearningPlanRequest(messages) || isKnowledgeAnalogyRequest(messages) || isAnalogySceneChoice(messages)) return false;
+  if (isDirectUserQuestion(messages) || isPracticeRequest(messages) || isKnowledgeLessonRequest(messages) || isLearningPlanRequest(messages) || isKnowledgeAnalogyRequest(messages) || isAnalogySceneChoice(messages)) return false;
   return /不知道|不会|不懂|不确定|没思路|卡住|随便|蒙|可能|应该|前面|后面|最后|只会|不标准|漏了|少答|没答完|只回答/.test(latest)
     || /不对|错了|偏了|漏掉|没回答最后|无意义重复|模板|绕圈|继续卡/.test(recent);
 }
@@ -1020,12 +1071,12 @@ function shouldShowLocalDiagram(messages, profile = {}) {
 
 function isKnowledgeVisualTopic(text) {
   const value = String(text || "");
-  return /函数|图像|坐标|自变量|因变量|定义域|值域|单调|奇偶|一次函数|二次函数|反比例函数|指数函数|对数函数|导数|斜率|几何|图形|三角形|四边形|圆|线段|直线|射线|角度|平行|垂直|相似|全等|切线|弦|半径|直径|面积|体积|数列|通项|递推|概率|样本空间|事件/.test(value);
+  return /函数|图像|坐标|自变量|因变量|定义域|值域|单调|奇偶|一次函数|二次函数|反比例函数|指数函数|对数函数|导数|斜率|长方形|正方形|矩形|周长|几何|图形|三角形|四边形|圆|线段|直线|射线|角度|平行|垂直|相似|全等|切线|弦|半径|直径|面积|体积|数列|通项|递推|概率|样本空间|事件/.test(value);
 }
 
 function shouldPreferLocalDiagram(messages, profile = {}) {
   const text = `${latestUserText(messages)}\n${historyText(messages, 4)}`;
-  if (profile.intent === "lesson_start") return true;
+  if (/长方形|正方形|矩形|周长|面积|函数|图像|坐标|自变量|因变量|定义域|值域|单调|奇偶/.test(text)) return true;
   if (/知识点|概念|学|学习|讲讲|解释|理解|类比|为什么|示意图|图解/.test(text) && isKnowledgeVisualTopic(text)) return true;
   return false;
 }
@@ -1058,9 +1109,42 @@ function geometryExampleLabels(text, kind) {
   return unique.length >= 3 ? unique : defaults[kind];
 }
 
+function geometryRelationsFromText(text) {
+  const value = String(text || "").replace(/\s+/g, "");
+  const relations = [];
+  const push = relation => {
+    const label = relation.label || [relation.a, relation.type, relation.b].filter(Boolean).join(" ");
+    if (!label) return;
+    const key = `${relation.type}|${relation.a || ""}|${relation.b || ""}|${relation.point || ""}|${relation.line || ""}|${label}`;
+    if (relations.some(item => item.key === key)) return;
+    relations.push({ ...relation, label, key });
+  };
+
+  for (const match of value.matchAll(/([A-Z]{1,2})(?:⊥|垂直于?|与)([A-Z]{1,2})(?:垂直)/g)) {
+    push({ type: "perpendicular", a: match[1], b: match[2], label: `${match[1]} ⟂ ${match[2]}` });
+  }
+  for (const match of value.matchAll(/([A-Z]{1,2})(?:∥|平行于?|与)([A-Z]{1,2})(?:平行)/g)) {
+    push({ type: "parallel", a: match[1], b: match[2], label: `${match[1]} ∥ ${match[2]}` });
+  }
+  for (const match of value.matchAll(/([A-Z])(?:在|位于)([A-Z]{2})上/g)) {
+    push({ type: "pointOn", point: match[1], line: match[2], label: `${match[1]} 在 ${match[2]} 上` });
+  }
+  for (const match of value.matchAll(/([A-Z]{2})(?:=|等于)([A-Z]{2})/g)) {
+    push({ type: "equal", a: match[1], b: match[2], label: `${match[1]} = ${match[2]}` });
+  }
+  for (const match of value.matchAll(/([A-Z]{2})(?:是|为)?(?:⊙?[A-Z]?的?)?切线/g)) {
+    push({ type: "tangent", a: match[1], label: `${match[1]} 为切线` });
+  }
+  for (const match of value.matchAll(/∠?([A-Z]{3})(?:=|等于)∠?([A-Z]{3})/g)) {
+    push({ type: "equalAngle", a: `∠${match[1]}`, b: `∠${match[2]}`, label: `∠${match[1]} = ∠${match[2]}` });
+  }
+  return relations.map(({ key, ...relation }) => relation).slice(0, 8);
+}
+
 function buildGeometryExampleDiagram(context) {
   const kind = geometryExampleKind(context);
   const labels = geometryExampleLabels(context, kind);
+  const relations = geometryRelationsFromText(context);
   const shapeName = {
     circle: "圆与切线/弦关系",
     trapezoid: "梯形与三角形关系",
@@ -1070,7 +1154,7 @@ function buildGeometryExampleDiagram(context) {
   return {
     title: "几何例题示意图",
     demoType: `geometry-example-${kind}`,
-    figure: { kind, labels },
+    figure: { kind, labels, relations },
     nodes: [
       { id: "n1", label: shapeName, type: "given" },
       { id: "n2", label: `标注点：${labels.slice(0, 5).join("、")}`, type: "given" },
@@ -1090,9 +1174,40 @@ function buildGeometryExampleDiagram(context) {
   };
 }
 
+function buildRectangleMeasureDiagram(context) {
+  const isSquare = /正方形/.test(context);
+  return {
+    title: isSquare ? "正方形周长与面积示意图" : "长方形周长与面积示意图",
+    demoType: "rectangle-measure",
+    figure: { kind: isSquare ? "square" : "rectangle" },
+    nodes: [
+      { id: "n1", label: isSquare ? "正方形" : "长方形", type: "given" },
+      { id: "n2", label: isSquare ? "边长 a" : "长 a、宽 b", type: "given" },
+      { id: "n3", label: "周长看边界一圈", type: "relation" },
+      { id: "n4", label: "面积看里面铺满", type: "relation" },
+      { id: "n5", label: isSquare ? "周长=4×边长" : "周长=(长+宽)×2", type: "result" },
+      { id: "n6", label: isSquare ? "面积=边长×边长" : "面积=长×宽", type: "result" }
+    ],
+    edges: [
+      { from: "n1", to: "n2", label: "先看尺寸" },
+      { from: "n2", to: "n3", label: "围一圈" },
+      { from: "n2", to: "n4", label: "铺小方格" },
+      { from: "n3", to: "n5", label: "边长相加" },
+      { from: "n4", to: "n6", label: "行数×列数" }
+    ],
+    note: "周长是外边界一圈的长度，面积是内部能铺多少个单位小方格。"
+  };
+}
+
 function buildLocalDiagram(messages, answer = "") {
   const text = latestUserText(messages).replace(/\s+/g, " ");
   const context = `${text}\n${answer}`.replace(/\s+/g, " ");
+
+  if (/长方形|正方形|矩形|周长|面积/.test(context)
+    && /长方形|正方形|矩形/.test(context)
+    && !/三角形|圆|梯形|切线|弦|半径|直径|相似|全等|证明/.test(context)) {
+    return buildRectangleMeasureDiagram(context);
+  }
 
   if (/函数|图像|坐标|自变量|因变量|定义域|值域|单调|奇偶|一次函数|二次函数|反比例函数|指数函数|对数函数|导数|斜率/.test(context)) {
     return {
@@ -1339,10 +1454,11 @@ async function callOpenAIDiagram(messages, answer, profile = {}) {
         instructions: [
           "你是数学解题结构图规划器，只输出 JSON，不输出 Markdown。",
           "你的任务不是画原题，而是把当前题目和回复里的关系转成结构图节点和边。",
-          "尤其是几何题：不要凭空生成三角形、圆、角标、平行、垂直、相等、切线等原题没有明确给出的图形关系；只画“读图对象、明确条件、目标关系、可尝试的桥梁、下一步核对”。",
+          "尤其是几何题：不要凭空生成三角形、圆、角标、平行、垂直、相等、切线等原题没有明确给出的图形关系；只把题目或回复中明确出现的点、线、圆、关系放进 figure。",
+          "几何题请优先返回 demoType 为 geometry-semantic，并填写 figure：kind 可为 triangle、quadrilateral、trapezoid、circle、rectangle、unknown；labels 是点名；points 可给归一化坐标 0-320/0-240；segments 写线段 from/to；circles 写 center/through；relations 写关系 type、a、b、point、line、label。关系 type 可用 perpendicular、parallel、equal、equalAngle、pointOn、tangent、midpoint、angleBisector。",
           "如果题目图形信息不足，结构图要诚实显示“核对原图标注/补充条件”，不要假装已经知道完整图形。",
           "节点顺序必须贴合学生理解：对象/已知条件 -> 单位或标准 -> 关键关系 -> 解题动作 -> 目标或检查。",
-          "返回格式：{\"diagramAction\":\"show\",\"diagram\":{\"title\":\"...\",\"demoType\":\"\",\"nodes\":[{\"id\":\"n1\",\"label\":\"...\",\"type\":\"given|relation|step|goal|check|result\"}],\"edges\":[{\"from\":\"n1\",\"to\":\"n2\",\"label\":\"...\"}],\"note\":\"...\"}}。",
+          "返回格式：{\"diagramAction\":\"show\",\"diagram\":{\"title\":\"...\",\"demoType\":\"geometry-semantic\",\"figure\":{\"kind\":\"triangle\",\"labels\":[\"A\",\"B\",\"C\"],\"points\":[{\"id\":\"A\",\"x\":60,\"y\":180}],\"segments\":[{\"from\":\"A\",\"to\":\"B\"}],\"circles\":[{\"center\":\"O\",\"through\":\"A\"}],\"relations\":[{\"type\":\"perpendicular\",\"a\":\"AD\",\"b\":\"BC\",\"label\":\"AD ⟂ BC\"}]},\"nodes\":[{\"id\":\"n1\",\"label\":\"...\",\"type\":\"given|relation|step|goal|check|result\"}],\"edges\":[{\"from\":\"n1\",\"to\":\"n2\",\"label\":\"...\"}],\"note\":\"...\"}}。",
           "节点 4-7 个，边 3-8 条，标签短，不要出现 SDE、三方程、六路径、三原理等术语。"
         ].join("\n"),
         max_output_tokens: 900,
