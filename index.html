@@ -909,20 +909,7 @@
       const normalized = normalizeMathText(text);
       div.textContent = normalized;
       if (role === "agent" && normalized && !normalized.startsWith("正在")) {
-        const fastSpeakButton = document.createElement("button");
-        fastSpeakButton.className = "msg-speak fast";
-        fastSpeakButton.type = "button";
-        fastSpeakButton.textContent = "快速朗读";
-        fastSpeakButton.dataset.label = fastSpeakButton.textContent;
-        fastSpeakButton.addEventListener("click", () => browserSpeakText(normalized, fastSpeakButton));
-        div.appendChild(fastSpeakButton);
-        const speakButton = document.createElement("button");
-        speakButton.className = "msg-speak";
-        speakButton.type = "button";
-        speakButton.textContent = "AI人声";
-        speakButton.dataset.label = speakButton.textContent;
-        speakButton.addEventListener("click", () => speakText(normalized, speakButton));
-        div.appendChild(speakButton);
+        appendAgentTools(div, normalized);
       }
       messages.appendChild(div);
       messages.scrollTop = messages.scrollHeight;
@@ -930,6 +917,27 @@
         window.MathJax.typesetPromise([div]).catch(() => {});
       }
       return div;
+    }
+
+    function appendAgentTools(div, text) {
+      if (!div || div.dataset.toolsAttached === "1") return;
+      const normalized = normalizeMathText(text);
+      if (!normalized) return;
+      div.dataset.toolsAttached = "1";
+      const fastSpeakButton = document.createElement("button");
+      fastSpeakButton.className = "msg-speak fast";
+      fastSpeakButton.type = "button";
+      fastSpeakButton.textContent = "快速朗读";
+      fastSpeakButton.dataset.label = fastSpeakButton.textContent;
+      fastSpeakButton.addEventListener("click", () => browserSpeakText(normalized, fastSpeakButton));
+      div.appendChild(fastSpeakButton);
+      const speakButton = document.createElement("button");
+      speakButton.className = "msg-speak";
+      speakButton.type = "button";
+      speakButton.textContent = "AI人声";
+      speakButton.dataset.label = speakButton.textContent;
+      speakButton.addEventListener("click", () => speakText(normalized, speakButton));
+      div.appendChild(speakButton);
     }
 
     function normalizeMathText(text) {
@@ -1831,56 +1839,134 @@
       return true;
     }
 
+    function chatPayload(options = {}) {
+      return {
+        profile: { ...profile(), intent: options.intent || "" },
+        messages: history,
+        conversationId: currentConversationId,
+        displayText: options.displayText || ""
+      };
+    }
+
+    async function finishAssistantMessage(data, bubble, streamedText = "") {
+      setQuota(data);
+      const finalAnswer = data.answer || streamedText;
+      bubble.textContent = normalizeMathText(finalAnswer);
+      appendAgentTools(bubble, finalAnswer);
+      if (data.diagramAction === "show" || data.diagramAction === "update") {
+        renderStructureDiagram(data.diagram);
+      } else {
+        drawThinking();
+      }
+      if (data.conversation?.id) {
+        currentConversationId = data.conversation.id;
+        await loadConversations();
+      }
+      history.push({ role: "assistant", content: finalAnswer });
+      messages.scrollTop = messages.scrollHeight;
+    }
+
+    async function sendClassic(options, bubble, loadingTimer) {
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders() },
+        body: JSON.stringify(chatPayload(options))
+      });
+      const data = await res.json();
+      window.clearInterval(loadingTimer);
+      if (!res.ok) {
+        bubble.remove();
+        setQuota(data);
+        addMessage(data.error || "本次请求失败。", "error");
+        return;
+      }
+      await finishAssistantMessage(data, bubble);
+    }
+
+    async function sendStream(options, bubble, loadingTimer) {
+      const res = await fetch("/api/chat-stream", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders() },
+        body: JSON.stringify(chatPayload(options))
+      });
+      if (!res.ok || !res.body) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || "stream unavailable");
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder("utf-8");
+      let buffer = "";
+      let streamedText = "";
+      let finalData = null;
+      let sawToken = false;
+
+      const handleEvent = eventText => {
+        const eventLine = eventText.split("\n").find(line => line.startsWith("event:"));
+        const dataLine = eventText.split("\n").find(line => line.startsWith("data:"));
+        if (!eventLine || !dataLine) return;
+        const eventName = eventLine.slice(6).trim();
+        let data = {};
+        try {
+          data = JSON.parse(dataLine.slice(5).trim());
+        } catch {
+          return;
+        }
+        if (eventName === "token") {
+          if (!sawToken) {
+            sawToken = true;
+            window.clearInterval(loadingTimer);
+          }
+          streamedText += data.token || "";
+          bubble.textContent = normalizeMathText(streamedText);
+          messages.scrollTop = messages.scrollHeight;
+        }
+        if (eventName === "final") {
+          finalData = data;
+        }
+        if (eventName === "error") {
+          throw new Error(data.error || "stream failed");
+        }
+      };
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const events = buffer.split("\n\n");
+        buffer = events.pop() || "";
+        for (const eventText of events) handleEvent(eventText);
+      }
+      if (buffer.trim()) handleEvent(buffer);
+      window.clearInterval(loadingTimer);
+      if (!finalData) throw new Error("stream incomplete");
+      await finishAssistantMessage(finalData, bubble, streamedText);
+    }
+
     async function send(text, options = {}) {
       addMessage(options.displayText || text, "user");
       drawThinking();
       history.push({ role: "user", content: text });
-      const loading = addMessage(replyMode === "讲解模式" ? "正在生成结构化讲解..." : "正在生成启发提示...");
+      const bubble = addMessage(replyMode === "讲解模式" ? "正在连接讲解模型..." : "正在连接启发模型...");
       const loadingTips = replyMode === "讲解模式"
-        ? ["正在找对象...", "正在定单位/标准...", "正在搭关系...", "正在整理讲解..."]
-        : ["正在定位入口...", "正在找关键关系...", "正在生成追问..."];
+        ? ["正在找对象...", "正在定单位/标准...", "开始生成后会直接显示在这里..."]
+        : ["正在定位入口...", "正在找关键关系...", "开始生成后会直接显示在这里..."];
       let tipIndex = 0;
       const loadingTimer = window.setInterval(() => {
         tipIndex = (tipIndex + 1) % loadingTips.length;
-        loading.firstChild.textContent = loadingTips[tipIndex];
-      }, 2200);
+        bubble.firstChild.textContent = loadingTips[tipIndex];
+      }, 1600);
 
       try {
-        const res = await fetch("/api/chat", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", ...authHeaders() },
-          body: JSON.stringify({
-            profile: { ...profile(), intent: options.intent || "" },
-            messages: history,
-            conversationId: currentConversationId,
-            displayText: options.displayText || ""
-          })
-        });
-        const data = await res.json();
-        window.clearInterval(loadingTimer);
-        loading.remove();
-        setQuota(data);
-
-        if (!res.ok) {
-          addMessage(data.error || "本次请求失败。", "error");
-          return;
-        }
-
-        addMessage(data.answer);
-        if (data.diagramAction === "show" || data.diagramAction === "update") {
-          renderStructureDiagram(data.diagram);
-        } else {
-          drawThinking();
-        }
-        if (data.conversation?.id) {
-          currentConversationId = data.conversation.id;
-          await loadConversations();
-        }
-        history.push({ role: "assistant", content: data.answer });
+        await sendStream(options, bubble, loadingTimer);
       } catch (error) {
-        window.clearInterval(loadingTimer);
-        loading.remove();
-        addMessage("网络或服务暂时不可用，请稍后再试。", "error");
+        try {
+          await sendClassic(options, bubble, loadingTimer);
+        } catch {
+          window.clearInterval(loadingTimer);
+          bubble.remove();
+          addMessage("网络或服务暂时不可用，请稍后再试。", "error");
+        }
       }
     }
 

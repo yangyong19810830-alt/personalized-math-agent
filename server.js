@@ -5,7 +5,7 @@ const crypto = require("crypto");
 
 const PORT = Number(process.env.PORT || 8787);
 const ROOT = __dirname;
-const APP_VERSION = "sde-knowledge-20260702-system-learning-plan-fix";
+const APP_VERSION = "sde-knowledge-20260703-streaming";
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || "";
 const DEEPSEEK_BASE_URL = (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com").replace(/\/$/, "");
 const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || "deepseek-v4-pro";
@@ -1331,16 +1331,12 @@ function isLengthCutoff(result) {
   return result?.data?.choices?.[0]?.finish_reason === "length";
 }
 
-async function requestDeepSeek(messages, profile, config, options = {}) {
-  if (!config.apiKey) {
-    throw new Error("服务端尚未配置 DEEPSEEK_API_KEY");
-  }
-
+function buildDeepSeekPayload(messages, profile, config, options = {}) {
   const payload = {
     model: config.model,
     temperature: config.temperature,
     max_tokens: options.maxTokens || config.maxTokens,
-    stream: false,
+    stream: Boolean(options.stream),
     messages: [
       {
         role: "system",
@@ -1368,6 +1364,15 @@ async function requestDeepSeek(messages, profile, config, options = {}) {
   if (options.strictJsonMode) {
     payload.response_format = { type: "json_object" };
   }
+  return payload;
+}
+
+async function requestDeepSeek(messages, profile, config, options = {}) {
+  if (!config.apiKey) {
+    throw new Error("服务端尚未配置 DEEPSEEK_API_KEY");
+  }
+
+  const payload = buildDeepSeekPayload(messages, profile, config, { ...options, stream: false });
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), options.timeoutMs || DEEPSEEK_TIMEOUT_MS);
@@ -1401,6 +1406,86 @@ async function requestDeepSeek(messages, profile, config, options = {}) {
     config,
     data
   };
+}
+
+function writeSse(res, event, data) {
+  res.write(`event: ${event}\n`);
+  res.write(`data: ${JSON.stringify(data)}\n\n`);
+}
+
+async function requestDeepSeekStream(messages, profile, config, options = {}) {
+  if (!config.apiKey) {
+    throw new Error("服务端尚未配置 DEEPSEEK_API_KEY");
+  }
+
+  const payload = buildDeepSeekPayload(messages, profile, config, {
+    ...options,
+    stream: true,
+    retryHint: [
+      options.retryHint || "",
+      "本次使用流式输出。只能输出普通正文文本，不要输出 JSON、Markdown、LaTeX 原码。"
+    ].filter(Boolean).join("\n")
+  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), options.timeoutMs || DEEPSEEK_TIMEOUT_MS);
+  let response;
+  try {
+    response = await fetch(`${config.baseUrl}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${config.apiKey}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(payload),
+      signal: controller.signal
+    });
+  } catch (error) {
+    if (error.name === "AbortError") {
+      throw new Error("DeepSeek 响应超时");
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  if (!response.ok || !response.body) {
+    const data = await response.json().catch(() => ({}));
+    throw new Error(data.error?.message || data.message || `DeepSeek API 错误：${response.status}`);
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder("utf-8");
+  let buffer = "";
+  let raw = "";
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const events = buffer.split("\n\n");
+    buffer = events.pop() || "";
+    for (const event of events) {
+      const lines = event.split("\n").filter(line => line.startsWith("data:"));
+      for (const line of lines) {
+        const dataText = line.slice(5).trim();
+        if (!dataText || dataText === "[DONE]") continue;
+        let data;
+        try {
+          data = JSON.parse(dataText);
+        } catch {
+          continue;
+        }
+        const delta = data.choices?.[0]?.delta || {};
+        const piece = delta.content || delta.text || "";
+        if (piece) {
+          raw += piece;
+          options.onToken?.(piece);
+        }
+      }
+    }
+  }
+  const tail = decoder.decode();
+  if (tail) raw += "";
+  return { raw, config, data: { streamed: true } };
 }
 
 async function callFlashFallback(messages, profile, reason = "") {
@@ -2156,6 +2241,125 @@ async function handleChat(req, res) {
   }
 }
 
+async function handleChatStream(req, res) {
+  let headersSent = false;
+  try {
+    const body = JSON.parse(await readBody(req) || "{}");
+    const user = getUserFromRequest(req);
+    if (!user) {
+      sendJson(res, 401, { error: "请先登录后再使用对话功能" });
+      return;
+    }
+    if (!isTrialActive(user)) {
+      sendJson(res, 403, {
+        error: "试用期已经结束。请联系老师或管理员获取新的试用资格。",
+        limit: DAILY_LIMIT,
+        remaining: 0,
+        user: publicUser(user)
+      });
+      return;
+    }
+    const identity = `user:${user.id}`;
+    const profile = body.profile || {};
+    const messages = Array.isArray(body.messages) ? body.messages : [];
+    const latestUserMessage = [...messages].reverse().find(message => message.role === "user");
+
+    if (!messages.length || !latestUserMessage) {
+      sendJson(res, 400, { error: "缺少对话内容" });
+      return;
+    }
+
+    if (!consumeQuota(req, identity)) {
+      sendJson(res, 429, {
+        error: `今天的 ${DAILY_LIMIT} 次试用次数已经用完，明天可以继续。`,
+        limit: DAILY_LIMIT,
+        remaining: 0
+      });
+      return;
+    }
+
+    res.writeHead(200, {
+      "Content-Type": "text/event-stream; charset=utf-8",
+      "Cache-Control": "no-store, no-transform",
+      "Connection": "keep-alive",
+      "X-Accel-Buffering": "no"
+    });
+    headersSent = true;
+    writeSse(res, "start", { ok: true });
+
+    const primaryConfig = deepSeekConfig(messages, profile);
+    let streamResult;
+    try {
+      streamResult = await requestDeepSeekStream(messages, profile, primaryConfig, {
+        onToken: token => writeSse(res, "token", { token })
+      });
+    } catch (error) {
+      const fallback = trimHeuristicReply(fallbackTeachingReply(messages, profile), messages, profile);
+      for (const part of fallback.match(/.{1,18}/gs) || [fallback]) {
+        writeSse(res, "token", { token: part });
+      }
+      streamResult = {
+        raw: fallback,
+        config: primaryConfig,
+        data: { fallback: true, reason: error.message || "stream failed" }
+      };
+    }
+
+    let answer = trimHeuristicReply(streamResult.raw, messages, profile);
+    let diagramAction = shouldShowLocalDiagram(messages, profile) ? "show" : "hold";
+    let diagram = null;
+    const parsed = extractJsonObject(answer);
+    if (parsed && typeof parsed === "object") {
+      answer = String(parsed.answer || answer).trim();
+      const action = ["hold", "show", "update"].includes(parsed.diagramAction) ? parsed.diagramAction : "hold";
+      diagramAction = action === "hold" && shouldShowLocalDiagram(messages, profile) ? "show" : action;
+      const normalizedDiagram = action === "hold" ? null : normalizeDiagram(parsed.diagram);
+      if (normalizedDiagram?.nodes?.length) diagram = normalizedDiagram;
+    }
+    if (diagramAction !== "hold" && !diagram) {
+      const aiDiagram = await callOpenAIDiagram(messages, answer, profile).catch(() => null);
+      diagram = aiDiagram || buildLocalDiagram(messages, answer);
+    }
+
+    const conversation = saveConversationMessages(
+      user,
+      String(body.conversationId || ""),
+      {
+        content: latestUserMessage.content,
+        displayContent: body.displayText || latestUserMessage.displayContent || latestUserMessage.content
+      },
+      {
+        content: answer,
+        diagramAction,
+        diagram
+      }
+    );
+
+    writeSse(res, "final", {
+      answer,
+      diagramAction,
+      diagram,
+      conversation: publicConversation(conversation),
+      modelTier: streamResult.config?.tier,
+      model: streamResult.config?.model,
+      limit: DAILY_LIMIT,
+      remaining: remainingFor(req, identity),
+      user: publicUser(user)
+    });
+    res.end();
+  } catch (error) {
+    if (headersSent) {
+      writeSse(res, "error", { error: error.message || "服务异常", limit: DAILY_LIMIT });
+      res.end();
+    } else {
+      sendJson(res, 500, {
+        error: error.message || "服务异常",
+        limit: DAILY_LIMIT
+      });
+    }
+  }
+}
+
 async function handleVision(req, res) {
   try {
     const user = getUserFromRequest(req);
@@ -2288,6 +2492,10 @@ const server = http.createServer((req, res) => {
   }
   if (req.method === "POST" && req.url === "/api/admin/invite-codes") {
     handleAdminInviteCodes(req, res);
+    return;
+  }
+  if (req.method === "POST" && req.url === "/api/chat-stream") {
+    handleChatStream(req, res);
     return;
   }
   if (req.method === "POST" && req.url === "/api/chat") {
