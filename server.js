@@ -5,7 +5,7 @@ const crypto = require("crypto");
 
 const PORT = Number(process.env.PORT || 8787);
 const ROOT = __dirname;
-const APP_VERSION = "sde-knowledge-20260703-xunfei-x2-vl-endpoint";
+const APP_VERSION = "sde-knowledge-20260703-xunfei-x2-vl-only";
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || "";
 const DEEPSEEK_BASE_URL = (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com").replace(/\/$/, "");
 const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || "deepseek-v4-pro";
@@ -24,6 +24,7 @@ const OPENAI_DIAGRAM_MODEL = process.env.OPENAI_DIAGRAM_MODEL || OPENAI_VISION_M
 const OPENAI_DIAGRAM_TIMEOUT_MS = Number(process.env.OPENAI_DIAGRAM_TIMEOUT_MS || 12000);
 const VISION_API_KEY = process.env.VISION_API_KEY || "";
 const RAW_VISION_PROVIDER = (process.env.VISION_PROVIDER || "xunfei").toLowerCase();
+const VISION_FALLBACK_ENABLED = String(process.env.VISION_FALLBACK_ENABLED || "false").toLowerCase() === "true";
 const VISION_PROVIDER = RAW_VISION_PROVIDER
   .replace("-only", "")
   .replace("spark", "xunfei")
@@ -2498,13 +2499,14 @@ async function callVisionWithProvider(image, provider, hint = "") {
 }
 
 async function callVision(image, hint = "") {
-  const providers = VISION_PROVIDER === "xunfei"
+  const fallbackProviders = VISION_PROVIDER === "xunfei"
     ? ["xunfei", ...(OPENAI_API_KEY ? ["openai"] : []), ...(KIMI_API_KEY ? ["kimi"] : []), ...(ZHIPU_VISION_API_KEY ? ["zhipu"] : [])]
     : VISION_PROVIDER === "openai"
       ? ["openai", ...(XUNFEI_API_KEY ? ["xunfei"] : []), ...(KIMI_API_KEY ? ["kimi"] : []), ...(ZHIPU_VISION_API_KEY ? ["zhipu"] : [])]
       : VISION_PROVIDER === "kimi"
         ? ["kimi", ...(XUNFEI_API_KEY ? ["xunfei"] : []), ...(OPENAI_API_KEY ? ["openai"] : []), ...(ZHIPU_VISION_API_KEY ? ["zhipu"] : [])]
         : ["zhipu", ...(XUNFEI_API_KEY ? ["xunfei"] : []), ...(OPENAI_API_KEY ? ["openai"] : [])];
+  const providers = VISION_FALLBACK_ENABLED ? fallbackProviders : [VISION_PROVIDER];
   let lastError = null;
 
   for (const provider of providers) {
@@ -3258,6 +3260,7 @@ const server = http.createServer((req, res) => {
       deployedAt: "2026-07-02",
       visionProvider: VISION_PROVIDER,
       rawVisionProvider: RAW_VISION_PROVIDER,
+      visionFallbackEnabled: VISION_FALLBACK_ENABLED,
       xunfeiVisionModel: XUNFEI_VISION_MODEL,
       xunfeiBaseUrl: XUNFEI_BASE_URL,
       openaiVisionModel: OPENAI_VISION_MODEL,
