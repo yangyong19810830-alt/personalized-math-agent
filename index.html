@@ -1720,16 +1720,34 @@
       }
     }
 
-    async function authRequest(path) {
+    function setupInviteOnlyAuth() {
+      document.querySelector("#authPanel h2").textContent = "输入邀请码开始试用";
+      ["#authName", "#authEmail", "#authPassword"].forEach(selector => {
+        const field = document.querySelector(selector)?.closest(".field");
+        if (field) field.classList.add("hidden");
+      });
+      const inviteInput = document.querySelector("#inviteCode");
+      inviteInput.placeholder = "请输入老师或管理员发给你的邀请码";
+      inviteInput.autocomplete = "one-time-code";
+      const loginButton = document.querySelector("#login");
+      loginButton.textContent = "进入试用";
+      const registerButton = document.querySelector("#register");
+      registerButton.classList.add("hidden");
+      const actions = document.querySelector("#authPanel .auth-actions");
+      if (actions) actions.style.gridTemplateColumns = "1fr";
+      const note = document.querySelector("#authPanel .small");
+      if (note) note.textContent = "第一次输入邀请码会自动开启试用账号；试用期内，下次打开会自动登录。";
+    }
+
+    async function authRequest() {
       const payload = {
-        email: document.querySelector("#authEmail").value.trim(),
-        password: document.querySelector("#authPassword").value
+        inviteCode: document.querySelector("#inviteCode").value.trim()
       };
-      if (path === "/api/register") {
-        payload.name = document.querySelector("#authName").value.trim();
-        payload.inviteCode = document.querySelector("#inviteCode").value.trim();
+      if (!payload.inviteCode) {
+        alert("请输入邀请码");
+        return;
       }
-      const res = await fetch(path, {
+      const res = await fetch("/api/invite-login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
@@ -1741,7 +1759,6 @@
       }
       authToken = data.token;
       localStorage.setItem("math_agent_token", authToken);
-      localStorage.setItem("math_agent_has_account", "1");
       document.querySelector("#inviteCode").value = "";
       updateAuthView(data);
     }
@@ -2054,8 +2071,13 @@
       updateSendButtonMode();
     });
 
-    document.querySelector("#register").addEventListener("click", () => authRequest("/api/register"));
-    document.querySelector("#login").addEventListener("click", () => authRequest("/api/login"));
+    document.querySelector("#register").addEventListener("click", authRequest);
+    document.querySelector("#login").addEventListener("click", authRequest);
+    document.querySelector("#inviteCode").addEventListener("keydown", event => {
+      if (event.key !== "Enter" || event.isComposing) return;
+      event.preventDefault();
+      authRequest();
+    });
     document.querySelector("#logout").addEventListener("click", async () => {
       await fetch("/api/logout", { method: "POST", headers: authHeaders() }).catch(() => {});
       authToken = "";
@@ -2070,6 +2092,7 @@
       quota.textContent = "请先登录";
     });
 
+    setupInviteOnlyAuth();
     setupPwaInstall();
     loadQuota();
     drawDefault();

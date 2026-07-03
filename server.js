@@ -5,7 +5,7 @@ const crypto = require("crypto");
 
 const PORT = Number(process.env.PORT || 8787);
 const ROOT = __dirname;
-const APP_VERSION = "sde-knowledge-20260703-streaming";
+const APP_VERSION = "sde-knowledge-20260703-invite-login";
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || "";
 const DEEPSEEK_BASE_URL = (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com").replace(/\/$/, "");
 const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || "deepseek-v4-pro";
@@ -323,6 +323,11 @@ function inviteCodeUsed(users, code) {
   return users.some(user => normalizeInviteCode(user.inviteCode) === normalized);
 }
 
+function userByInviteCode(users, code) {
+  const normalized = normalizeInviteCode(code);
+  return users.find(user => normalizeInviteCode(user.inviteCode) === normalized) || null;
+}
+
 function hashPassword(password, salt = crypto.randomBytes(16).toString("hex")) {
   const hash = crypto.pbkdf2Sync(String(password), salt, 120000, 32, "sha256").toString("hex");
   return { salt, hash };
@@ -336,8 +341,8 @@ function verifyPassword(password, user) {
 function publicUser(user) {
   return {
     id: user.id,
-    name: user.name,
-    email: user.email,
+    name: user.name || "体验用户",
+    email: user.email || "",
     trial: trialInfo(user)
   };
 }
@@ -2116,6 +2121,59 @@ async function handleLogin(req, res) {
   }
 }
 
+async function handleInviteLogin(req, res) {
+  try {
+    const body = JSON.parse(await readBody(req) || "{}");
+    const inviteCode = normalizeInviteCode(body.inviteCode);
+    if (!inviteCode) {
+      sendJson(res, 400, { error: "请输入邀请码" });
+      return;
+    }
+
+    const users = readUsers();
+    let user = userByInviteCode(users, inviteCode);
+    if (!user) {
+      const inviteAccess = findInviteAccess(users, inviteCode);
+      if (inviteAccess.error) {
+        sendJson(res, inviteAccess.error.includes("已经被使用") ? 409 : 403, { error: inviteAccess.error });
+        return;
+      }
+      const invitePlan = inviteAccess.plan;
+      const suffix = inviteCode.replace(/[^A-Z0-9]/g, "").slice(-4) || crypto.randomBytes(2).toString("hex").toUpperCase();
+      const passwordData = hashPassword(crypto.randomBytes(18).toString("hex"));
+      user = {
+        id: crypto.randomUUID(),
+        name: `体验用户${suffix}`,
+        email: `invite-${suffix.toLowerCase()}-${Date.now()}@local.math-agent`,
+        salt: passwordData.salt,
+        passwordHash: passwordData.hash,
+        inviteCode,
+        authMode: "invite",
+        trialType: invitePlan.type,
+        trialLabel: invitePlan.label,
+        trialStartsAt: new Date().toISOString(),
+        trialEndsAt: trialEndsAt(invitePlan),
+        createdAt: new Date().toISOString()
+      };
+      users.push(user);
+      writeUsers(users);
+      if (inviteAccess.source === "generated") {
+        markGeneratedInviteUsed(inviteCode, user);
+      }
+    }
+
+    const token = createSession(user);
+    sendJson(
+      res,
+      200,
+      { token, user: publicUser(user), limit: DAILY_LIMIT, remaining: remainingFor(req, `user:${user.id}`) },
+      { "Set-Cookie": authCookie(token) }
+    );
+  } catch (error) {
+    sendJson(res, 500, { error: error.message || "邀请码登录失败" });
+  }
+}
+
 async function handleMe(req, res) {
   const user = getUserFromRequest(req);
   if (!user) {
@@ -2464,6 +2522,10 @@ const server = http.createServer((req, res) => {
   }
   if (req.method === "POST" && req.url === "/api/login") {
     handleLogin(req, res);
+    return;
+  }
+  if (req.method === "POST" && req.url === "/api/invite-login") {
+    handleInviteLogin(req, res);
     return;
   }
   if (req.method === "GET" && req.url === "/api/me") {
