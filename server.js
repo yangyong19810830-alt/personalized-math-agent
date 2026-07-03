@@ -5,7 +5,7 @@ const crypto = require("crypto");
 
 const PORT = Number(process.env.PORT || 8787);
 const ROOT = __dirname;
-const APP_VERSION = "sde-knowledge-20260703-xunfei-x2vl-model-alias";
+const APP_VERSION = "sde-knowledge-20260703-xunfei-x2vl-omit-model";
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || "";
 const DEEPSEEK_BASE_URL = (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com").replace(/\/$/, "");
 const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || "deepseek-v4-pro";
@@ -2309,6 +2309,7 @@ function visionProviderConfig(provider) {
       baseUrl: XUNFEI_BASE_URL,
       model: XUNFEI_VISION_MODEL,
       requestModel: XUNFEI_REQUEST_MODEL,
+      omitModel: true,
       temperature: 0,
       timeoutMs: XUNFEI_VISION_TIMEOUT_MS,
       useBareBase64: false,
@@ -2442,7 +2443,7 @@ async function callVisionWithProvider(image, provider, hint = "") {
           "Content-Type": "application/json"
         },
         body: JSON.stringify({
-          model: config.requestModel || config.model,
+          ...(config.omitModel ? {} : { model: config.requestModel || config.model }),
           instructions: buildVisionSystemPrompt(),
           max_output_tokens: VISION_MAX_TOKENS,
           input: [
@@ -2465,7 +2466,7 @@ async function callVisionWithProvider(image, provider, hint = "") {
           "Content-Type": "application/json"
         },
         body: JSON.stringify({
-          model: config.requestModel || config.model,
+          ...(config.omitModel ? {} : { model: config.requestModel || config.model }),
           temperature: config.temperature,
           max_tokens: VISION_MAX_TOKENS,
           messages: [
@@ -3266,6 +3267,7 @@ const server = http.createServer((req, res) => {
       xunfeiConfigured: Boolean(XUNFEI_API_PASSWORD),
       xunfeiVisionModel: XUNFEI_VISION_MODEL,
       xunfeiRequestModel: XUNFEI_REQUEST_MODEL,
+      xunfeiOmitModel: true,
       xunfeiBaseUrl: XUNFEI_BASE_URL,
       openaiVisionModel: OPENAI_VISION_MODEL,
       openaiDiagramModel: OPENAI_DIAGRAM_MODEL
