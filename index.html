@@ -2424,13 +2424,36 @@
       });
     }
 
+    function looksLikeProblemText(text) {
+      const value = String(text || "").trim();
+      if (value.length < 18) return false;
+      if (/只做|只看|图中|第\d+小问|第[一二三四五六七八九十]+小问/.test(value) && value.length < 40) return false;
+      return /[0-9A-Za-z=+\-×÷<>∠△□π]|厘米|cm|面积|周长|证明|求|多少|如果|已知|那么|函数|方程|三角形|四边形|圆|梯形/.test(value);
+    }
+
+    function clearSelectedImage() {
+      selectedImageData = "";
+      previewImage.removeAttribute("src");
+      imagePreview.classList.remove("show");
+      updateSendButtonMode();
+    }
+
+    async function continueWithTypedProblem(hint, message) {
+      if (!looksLikeProblemText(hint)) return false;
+      addMessage(message || "图片识别暂时失败，已先根据你输入的题目文字继续。", "error");
+      document.querySelector("#question").value = "";
+      clearSelectedImage();
+      await send(hint, { displayText: hint });
+      return true;
+    }
+
     async function recognizeSelectedImage() {
       if (!selectedImageData) {
-        addMessage("请先上传一张题目图片。", "error");
+        addMessage("???????????", "error");
         return false;
       }
       const hint = document.querySelector("#question").value.trim();
-      const loading = addMessage("正在识别题目图片，通常 10 秒内完成...");
+      const loading = addMessage("??????????? 10 ????...");
       try {
         const res = await fetch("/api/vision", {
           method: "POST",
@@ -2440,27 +2463,33 @@
         const data = await res.json();
         loading.remove();
         if (!res.ok) {
-          addMessage(data.error || "图片识别失败。", "error");
+          if (await continueWithTypedProblem(hint, data.error || "????????????????????????")) {
+            return true;
+          }
+          addMessage(data.error || "???????", "error");
           return false;
         }
         const recognizedText = String(data.text || "").trim();
         if (!recognizedText) {
-          addMessage("图片识别完成了，但没有读到清晰的题目内容。可以换一张更清楚的图片，或手动输入题目。", "error");
+          if (await continueWithTypedProblem(hint, "??????????????????????????")) {
+            return true;
+          }
+          addMessage("?????????????????????????????????????????", "error");
           return false;
         }
         const combinedText = hint
-          ? `【用户补充说明】${hint}\n\n【图片识别结果】\n${recognizedText}`
-          : `【图片识别结果】\n${recognizedText}`;
+          ? "????????" + hint + "\n\n????????\n" + recognizedText
+          : "????????\n" + recognizedText;
         document.querySelector("#question").value = "";
-        await send(combinedText, { displayText: hint ? "我上传了一张题目图片，并补充了说明" : "我上传了一张题目图片" });
-        selectedImageData = "";
-        previewImage.removeAttribute("src");
-        imagePreview.classList.remove("show");
-        updateSendButtonMode();
+        await send(combinedText, { displayText: hint ? "?????????????????" : "??????????" });
+        clearSelectedImage();
         return true;
       } catch {
         loading.remove();
-        addMessage("图片识别服务暂时不可用。你可以先手动输入题目文字。", "error");
+        if (await continueWithTypedProblem(hint, "???????????????????????????")) {
+          return true;
+        }
+        addMessage("?????????????????????????", "error");
         return false;
       }
     }
