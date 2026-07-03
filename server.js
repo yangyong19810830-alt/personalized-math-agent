@@ -5,7 +5,7 @@ const crypto = require("crypto");
 
 const PORT = Number(process.env.PORT || 8787);
 const ROOT = __dirname;
-const APP_VERSION = "sde-knowledge-20260703-xunfei-x2vl-omit-model";
+const APP_VERSION = "sde-knowledge-20260703-xunfei-request-model";
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || "";
 const DEEPSEEK_BASE_URL = (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com").replace(/\/$/, "");
 const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || "deepseek-v4-pro";
@@ -33,7 +33,7 @@ const VISION_PROVIDER = RAW_VISION_PROVIDER
 const XUNFEI_API_PASSWORD = process.env.XUNFEI_API_PASSWORD || process.env.SPARK_API_PASSWORD || process.env.XUNFEI_API_KEY || process.env.SPARK_API_KEY || process.env.XFYUN_API_KEY || (VISION_PROVIDER === "xunfei" ? VISION_API_KEY : "");
 const XUNFEI_BASE_URL = (process.env.XUNFEI_BASE_URL || process.env.SPARK_BASE_URL || "https://spark-api-open.xf-yun.com/x2/chat/completions").replace(/\/$/, "");
 const XUNFEI_VISION_MODEL = process.env.XUNFEI_VISION_MODEL || process.env.SPARK_VISION_MODEL || process.env.SPARK_MODEL || "x2-vl";
-const XUNFEI_REQUEST_MODEL = /^x2-vl$/i.test(XUNFEI_VISION_MODEL) ? "x2" : XUNFEI_VISION_MODEL;
+const XUNFEI_REQUEST_MODEL = process.env.XUNFEI_REQUEST_MODEL || process.env.SPARK_REQUEST_MODEL || XUNFEI_VISION_MODEL;
 const XUNFEI_VISION_TIMEOUT_MS = Number(process.env.XUNFEI_VISION_TIMEOUT_MS || process.env.SPARK_VISION_TIMEOUT_MS || 15000);
 const VISION_BASE_URL = (process.env.VISION_BASE_URL || "https://open.bigmodel.cn/api/paas/v4").replace(/\/$/, "");
 const ZHIPU_VISION_API_KEY = process.env.ZHIPU_API_KEY || (VISION_PROVIDER === "zhipu" ? VISION_API_KEY : "");
@@ -2309,7 +2309,6 @@ function visionProviderConfig(provider) {
       baseUrl: XUNFEI_BASE_URL,
       model: XUNFEI_VISION_MODEL,
       requestModel: XUNFEI_REQUEST_MODEL,
-      omitModel: true,
       temperature: 0,
       timeoutMs: XUNFEI_VISION_TIMEOUT_MS,
       useBareBase64: false,
@@ -2494,7 +2493,11 @@ async function callVisionWithProvider(image, provider, hint = "") {
 
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(data.error?.message || data.message || `图片识别 API 错误：${response.status}`);
+    const apiMessage = data.error?.message || data.message || `图片识别 API 错误：${response.status}`;
+    if (provider === "xunfei" && /invalid param model/i.test(apiMessage)) {
+      throw new Error(`讯飞 X2-VL 接口拒绝当前 model 参数：${config.requestModel || config.model || "空"}。请在 Render 环境变量里把 XUNFEI_REQUEST_MODEL 改成讯飞文档要求的模型参数名。`);
+    }
+    throw new Error(apiMessage);
   }
   const text = config.endpoint === "responses" ? extractOpenAIResponseText(data) : extractVisionText(data);
   if (!text) throw new Error(`${visionProviderName(provider)}图片识别结果为空`);
@@ -3267,7 +3270,7 @@ const server = http.createServer((req, res) => {
       xunfeiConfigured: Boolean(XUNFEI_API_PASSWORD),
       xunfeiVisionModel: XUNFEI_VISION_MODEL,
       xunfeiRequestModel: XUNFEI_REQUEST_MODEL,
-      xunfeiOmitModel: true,
+      xunfeiOmitModel: false,
       xunfeiBaseUrl: XUNFEI_BASE_URL,
       openaiVisionModel: OPENAI_VISION_MODEL,
       openaiDiagramModel: OPENAI_DIAGRAM_MODEL
