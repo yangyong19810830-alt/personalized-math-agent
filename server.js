@@ -5,7 +5,7 @@ const crypto = require("crypto");
 
 const PORT = Number(process.env.PORT || 8787);
 const ROOT = __dirname;
-const APP_VERSION = "sde-knowledge-20260703-shape-definition-direct";
+const APP_VERSION = "sde-knowledge-20260703-xunfei-x2-vl-endpoint";
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || "";
 const DEEPSEEK_BASE_URL = (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com").replace(/\/$/, "");
 const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || "deepseek-v4-pro";
@@ -23,11 +23,18 @@ const OPENAI_VISION_TIMEOUT_MS = Number(process.env.OPENAI_VISION_TIMEOUT_MS || 
 const OPENAI_DIAGRAM_MODEL = process.env.OPENAI_DIAGRAM_MODEL || OPENAI_VISION_MODEL;
 const OPENAI_DIAGRAM_TIMEOUT_MS = Number(process.env.OPENAI_DIAGRAM_TIMEOUT_MS || 12000);
 const VISION_API_KEY = process.env.VISION_API_KEY || "";
-const RAW_VISION_PROVIDER = (process.env.VISION_PROVIDER || "openai").toLowerCase();
-const VISION_PROVIDER = OPENAI_API_KEY && !["zhipu-only", "kimi-only"].includes(RAW_VISION_PROVIDER)
-  ? "openai"
-  : RAW_VISION_PROVIDER.replace("-only", "");
+const RAW_VISION_PROVIDER = (process.env.VISION_PROVIDER || "xunfei").toLowerCase();
+const VISION_PROVIDER = RAW_VISION_PROVIDER
+  .replace("-only", "")
+  .replace("spark", "xunfei")
+  .replace("xfyun", "xunfei")
+  .replace("iflytek", "xunfei");
+const XUNFEI_API_KEY = process.env.XUNFEI_API_KEY || process.env.SPARK_API_KEY || process.env.XFYUN_API_KEY || (VISION_PROVIDER === "xunfei" ? VISION_API_KEY : "");
+const XUNFEI_BASE_URL = (process.env.XUNFEI_BASE_URL || process.env.SPARK_BASE_URL || "https://spark-api-open.xf-yun.com/x2/chat/completions").replace(/\/$/, "");
+const XUNFEI_VISION_MODEL = process.env.XUNFEI_VISION_MODEL || process.env.SPARK_VISION_MODEL || process.env.SPARK_MODEL || "x2-vl";
+const XUNFEI_VISION_TIMEOUT_MS = Number(process.env.XUNFEI_VISION_TIMEOUT_MS || process.env.SPARK_VISION_TIMEOUT_MS || 20000);
 const VISION_BASE_URL = (process.env.VISION_BASE_URL || "https://open.bigmodel.cn/api/paas/v4").replace(/\/$/, "");
+const ZHIPU_VISION_API_KEY = process.env.ZHIPU_API_KEY || (VISION_PROVIDER === "zhipu" ? VISION_API_KEY : "");
 const VISION_MODEL = process.env.VISION_MODEL || "glm-4v-plus-0111";
 const VISION_MAX_TOKENS = Number(process.env.VISION_MAX_TOKENS || 1800);
 const VISION_TIMEOUT_MS = Number(process.env.VISION_TIMEOUT_MS || 15000);
@@ -2293,6 +2300,18 @@ async function callDeepSeek(messages, profile) {
 }
 
 function visionProviderConfig(provider) {
+  if (provider === "xunfei") {
+    return {
+      provider,
+      apiKey: XUNFEI_API_KEY,
+      baseUrl: XUNFEI_BASE_URL,
+      model: XUNFEI_VISION_MODEL,
+      temperature: 0,
+      timeoutMs: XUNFEI_VISION_TIMEOUT_MS,
+      useBareBase64: false,
+      endpoint: "chat"
+    };
+  }
   if (provider === "openai") {
     return {
       provider,
@@ -2319,7 +2338,7 @@ function visionProviderConfig(provider) {
   }
   return {
     provider: "zhipu",
-    apiKey: VISION_API_KEY,
+    apiKey: ZHIPU_VISION_API_KEY,
     baseUrl: VISION_BASE_URL,
     model: VISION_MODEL,
     temperature: 0,
@@ -2357,6 +2376,7 @@ function extractOpenAIResponseText(data) {
 }
 
 function visionProviderName(provider) {
+  if (provider === "xunfei") return "讯飞星火 X2-VL";
   if (provider === "openai") return "OpenAI";
   if (provider === "kimi") return "Kimi";
   return "智谱";
@@ -2382,14 +2402,21 @@ function buildVisionSystemPrompt() {
   ].join("\n");
 }
 
+function chatCompletionsUrl(baseUrl) {
+  const value = String(baseUrl || "").replace(/\/$/, "");
+  return /\/chat\/completions$/.test(value) ? value : `${value}/chat/completions`;
+}
+
 async function callVisionWithProvider(image, provider, hint = "") {
   const config = visionProviderConfig(provider);
   if (!config.apiKey) {
-    throw new Error(provider === "openai"
-      ? "还没有配置 OPENAI_API_KEY"
-      : provider === "kimi"
-        ? "还没有配置 KIMI_API_KEY"
-        : "还没有配置 VISION_API_KEY");
+    throw new Error(provider === "xunfei"
+      ? "还没有配置 XUNFEI_API_KEY 或 SPARK_API_KEY"
+      : provider === "openai"
+        ? "还没有配置 OPENAI_API_KEY"
+        : provider === "kimi"
+          ? "还没有配置 KIMI_API_KEY"
+          : "还没有配置 ZHIPU_API_KEY 或 VISION_API_KEY");
   }
 
   const imageForProvider = config.useBareBase64
@@ -2428,7 +2455,7 @@ async function callVisionWithProvider(image, provider, hint = "") {
         signal: controller.signal
       });
     } else {
-      response = await fetch(`${config.baseUrl}/chat/completions`, {
+      response = await fetch(chatCompletionsUrl(config.baseUrl), {
         method: "POST",
         headers: {
           "Authorization": `Bearer ${config.apiKey}`,
@@ -2471,14 +2498,13 @@ async function callVisionWithProvider(image, provider, hint = "") {
 }
 
 async function callVision(image, hint = "") {
-  if (!OPENAI_API_KEY && RAW_VISION_PROVIDER === "openai") {
-    throw new Error("还没有配置 OPENAI_API_KEY，所以无法使用 OpenAI 图片识别。请在 Render 环境变量里添加 OPENAI_API_KEY 后重新部署。");
-  }
-  const providers = VISION_PROVIDER === "openai"
-    ? ["openai", ...(KIMI_API_KEY ? ["kimi"] : []), ...(VISION_API_KEY ? ["zhipu"] : [])]
-    : VISION_PROVIDER === "kimi"
-      ? ["kimi", ...(OPENAI_API_KEY ? ["openai"] : []), ...(VISION_API_KEY ? ["zhipu"] : [])]
-      : ["zhipu", ...(OPENAI_API_KEY ? ["openai"] : [])];
+  const providers = VISION_PROVIDER === "xunfei"
+    ? ["xunfei", ...(OPENAI_API_KEY ? ["openai"] : []), ...(KIMI_API_KEY ? ["kimi"] : []), ...(ZHIPU_VISION_API_KEY ? ["zhipu"] : [])]
+    : VISION_PROVIDER === "openai"
+      ? ["openai", ...(XUNFEI_API_KEY ? ["xunfei"] : []), ...(KIMI_API_KEY ? ["kimi"] : []), ...(ZHIPU_VISION_API_KEY ? ["zhipu"] : [])]
+      : VISION_PROVIDER === "kimi"
+        ? ["kimi", ...(XUNFEI_API_KEY ? ["xunfei"] : []), ...(OPENAI_API_KEY ? ["openai"] : []), ...(ZHIPU_VISION_API_KEY ? ["zhipu"] : [])]
+        : ["zhipu", ...(XUNFEI_API_KEY ? ["xunfei"] : []), ...(OPENAI_API_KEY ? ["openai"] : [])];
   let lastError = null;
 
   for (const provider of providers) {
@@ -2491,7 +2517,7 @@ async function callVision(image, hint = "") {
 
   const message = lastError?.message || "";
   if (/结果为空/.test(message)) {
-    throw new Error("图片识别结果为空。请换一张更清晰的图片，或补充输入题目文字；如果使用 OpenAI，请检查 OPENAI_API_KEY、OPENAI_VISION_MODEL 和账号权限。");
+    throw new Error("图片识别结果为空。请换一张更清晰的图片，或补充输入题目文字；如果使用讯飞星火 X2-VL，请检查 XUNFEI_API_KEY、XUNFEI_VISION_MODEL 和账号权限。");
   }
   throw new Error(message || "图片识别失败");
 }
@@ -3232,6 +3258,8 @@ const server = http.createServer((req, res) => {
       deployedAt: "2026-07-02",
       visionProvider: VISION_PROVIDER,
       rawVisionProvider: RAW_VISION_PROVIDER,
+      xunfeiVisionModel: XUNFEI_VISION_MODEL,
+      xunfeiBaseUrl: XUNFEI_BASE_URL,
       openaiVisionModel: OPENAI_VISION_MODEL,
       openaiDiagramModel: OPENAI_DIAGRAM_MODEL
     });
