@@ -5,7 +5,7 @@ const crypto = require("crypto");
 
 const PORT = Number(process.env.PORT || 8787);
 const ROOT = __dirname;
-const APP_VERSION = "sde-knowledge-20260703-plane-solid-shape-svg";
+const APP_VERSION = "sde-knowledge-20260703-shape-definition-direct";
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || "";
 const DEEPSEEK_BASE_URL = (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com").replace(/\/$/, "");
 const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || "deepseek-v4-pro";
@@ -900,7 +900,7 @@ function fallbackLearningPlanReply(messages, profile = {}) {
 
 function isDirectUserQuestion(messages) {
   const latest = latestUserText(messages);
-  return /为什么|为啥|怎么会|凭什么|我问的是|不是这个意思|不回答|没回答|先回答|哪里体现|什么意思|解释一下|听不懂|没懂|不明白|不对/.test(latest);
+  return /为什么|为啥|怎么会|凭什么|我问的是|不是这个意思|不回答|没回答|先回答|哪里体现|什么意思|解释一下|听不懂|没懂|不明白|不对|是什么|是啥|啥是|什么是|定义|性质|特点/.test(latest);
 }
 
 function directQuestionLine(messages) {
@@ -1007,10 +1007,82 @@ function choiceScaffoldReply() {
 
 function directQuestionFallback(messages) {
   const latest = latestUserText(messages);
+  const shapeReply = shapeDefinitionReply(messages);
+  if (shapeReply) return shapeReply;
   if (/平均分|先平均|尽量平均|抽屉|抽屉原理/.test(latest)) {
     return "你问的是：为什么抽屉原理里要先尽量平均分。\n\n原因是：我们想找的是“最少也会多出来”的那个临界点。先平均分，等于把东西尽可能分散，让每个盒子都尽量少，这样才是最不容易超出的情况。连这种最分散的情况都放不下，多出来的那一份就一定会把某个盒子顶上去。\n\n所以“先平均分”不是为了真的平均，而是为了找到最保守、最不容易出事的底线。";
   }
   return "你这个问题应该先直接回答，不能只按步骤往下推。\n\n我的意思是：这一类题里，每一步方法都要有理由。如果我说“先这样做”，就必须解释它为什么能帮助我们看见关系。你可以把你的疑问再具体说一句，比如“为什么先看这个量”或“为什么不用另一种做法”，我会先回答这个问题本身。";
+}
+
+function extractShapeTopic(text) {
+  const value = String(text || "").replace(/\s+/g, "");
+  const topics = [
+    "等腰梯形", "直角梯形", "平行四边形", "长方体", "正方体", "圆柱", "圆锥",
+    "菱形", "梯形", "长方形", "矩形", "正方形", "三角形", "四边形", "多边形",
+    "扇形", "圆环", "半圆", "圆形", "圆", "球体", "球", "棱柱", "棱锥"
+  ];
+  return topics.find(topic => value.includes(topic)) || "";
+}
+
+function isShapeDefinitionQuestion(messages) {
+  const latest = latestUserText(messages);
+  const topic = extractShapeTopic(latest);
+  if (!topic) return false;
+  const value = latest.replace(/\s+/g, "").replace(/[？?。！!，,]/g, "");
+  if (/(是什么|是啥|啥是|什么是|怎么认|怎样认|定义|性质|特点|属于什么|是哪类|呢)$/.test(value)) return true;
+  if (value === topic || value === `${topic}呢` || value === `${topic}是什么` || value === `${topic}是啥`) return true;
+  return false;
+}
+
+function shapeDefinitionReply(messages) {
+  if (!isShapeDefinitionQuestion(messages)) return "";
+  const topic = extractShapeTopic(latestUserText(messages));
+  const replies = {
+    平行四边形: "平行四边形，就是两组对边分别平行的四边形。\n\n一句话记住：上边和下边平行，左边和右边也平行。\n\n它常见的性质是：对边相等，对角相等，对角线互相平分。算面积时看底和高，面积=底×高。注意，高必须垂直于底，不是斜边。",
+    菱形: "菱形，就是四条边都相等的平行四边形。\n\n它一定属于平行四边形，因为它有两组对边分别平行；但它比普通平行四边形多一个条件：四条边都相等。\n\n菱形不是梯形。梯形通常指只有一组对边平行的四边形；菱形有两组对边平行。\n\n菱形常见性质是：四边相等，对边平行，对角相等，对角线互相垂直平分。面积可以用底×高，也可以用两条对角线相乘再除以2。",
+    梯形: "梯形，就是只有一组对边平行的四边形。\n\n平行的两条边叫上底和下底，另外两条边叫腰。梯形面积要看上底、下底和高，面积=(上底+下底)×高÷2。\n\n它和菱形、平行四边形的区别是：梯形通常只有一组对边平行，而平行四边形和菱形有两组对边平行。",
+    等腰梯形: "等腰梯形，就是两条腰相等的梯形。\n\n它先是梯形，所以只有一组对边平行；同时两条腰一样长。同底角相等、对角线相等，是它常用的性质。",
+    直角梯形: "直角梯形，就是有一个直角的梯形。\n\n它的一条腰通常垂直于底边，所以这条腰可以直接当高。算面积时仍然用：面积=(上底+下底)×高÷2。",
+    长方形: "长方形，就是四个角都是直角的四边形。\n\n它也是一种特殊的平行四边形：两组对边分别平行且相等。周长=(长+宽)×2，面积=长×宽。",
+    矩形: "矩形就是长方形：四个角都是直角的四边形。\n\n它有两组对边分别平行且相等，对角线也相等。面积=长×宽。",
+    正方形: "正方形，就是四条边都相等、四个角都是直角的四边形。\n\n它既是特殊的长方形，也是特殊的菱形。周长=边长×4，面积=边长×边长。",
+    三角形: "三角形，就是由三条线段围成的图形。\n\n学习三角形时重点看三件事：边、角、高。面积=底×高÷2。",
+    四边形: "四边形，就是由四条线段围成的图形。\n\n平行四边形、长方形、正方形、菱形、梯形都属于四边形家族。区别它们时，主要看边是否平行、边是否相等、角是否是直角。",
+    圆: "圆，就是平面上到同一个点距离相等的所有点组成的图形。\n\n中间那个点叫圆心，这个相等的距离叫半径。直径=2×半径，周长=2πr，面积=πr²。",
+    圆形: "圆形，就是平面上到圆心距离不超过半径的整块区域。\n\n如果只说边界，叫圆；如果说里面整块面积，常说圆形区域。面积=πr²。",
+    扇形: "扇形，就是圆里由两条半径和一段弧围成的一块区域。\n\n它像一块披萨。关键量是半径和圆心角。圆心角越大，扇形越大。",
+    圆环: "圆环，就是大圆中间挖掉一个小圆后剩下的环形区域。\n\n面积=大圆面积-小圆面积，也就是 πR²-πr²。",
+    半圆: "半圆，就是圆被一条直径分成的两半之一。\n\n半圆面积=πr²÷2。半圆周长要注意：不是圆周长的一半，而是半圆弧加一条直径，也就是 πr+2r。",
+    圆柱: "圆柱，就是上下两个相同的圆形底面，加上一个侧面围成的立体图形。\n\n可以想象成易拉罐。体积=底面积×高，侧面积=底面周长×高。",
+    圆锥: "圆锥，就是一个圆形底面和一个顶点连成的立体图形。\n\n可以想象成冰淇淋甜筒。体积=底面积×高÷3。",
+    正方体: "正方体，就是长、宽、高都相等的长方体。\n\n它有6个完全一样的正方形面，12条棱都相等。体积=棱长×棱长×棱长。",
+    长方体: "长方体，就是由6个长方形面围成的立体图形。\n\n关键看长、宽、高三个方向。体积=长×宽×高。",
+    球: "球，就是空间里到同一个点距离相等的所有点形成的立体图形。\n\n中间的点叫球心，这个相等距离叫半径。",
+    球体: "球体，就是球面连同里面的整个空间区域。\n\n可以想象成篮球或地球模型。关键量是球心和半径。",
+    多边形: "多边形，就是由多条线段首尾相接围成的平面图形。\n\n三角形、四边形、五边形都属于多边形。正多边形还要求各边相等、各角相等。"
+  };
+  const answer = replies[topic] || `${topic}是一个数学图形。先看它由哪些点、线、面组成，再看它有哪些固定关系，比如平行、相等、垂直或角度关系。`;
+  return `${answer}\n\n你可以先用一句话记：${shapeOneLine(topic)}`;
+}
+
+function shapeOneLine(topic) {
+  const lines = {
+    平行四边形: "两组对边分别平行的四边形。",
+    菱形: "四条边都相等的平行四边形。",
+    梯形: "只有一组对边平行的四边形。",
+    等腰梯形: "两条腰相等的梯形。",
+    直角梯形: "有一个直角的梯形。",
+    长方形: "四个角都是直角的四边形。",
+    矩形: "四个角都是直角的四边形。",
+    正方形: "四边相等、四角都是直角的四边形。",
+    三角形: "三条线段围成的图形。",
+    圆: "到圆心距离相等的点围成的图形。",
+    扇形: "两条半径和一段弧围成的圆的一部分。",
+    圆柱: "两个相同圆形底面加一个侧面形成的立体图形。",
+    圆锥: "一个圆形底面和一个顶点形成的立体图形。"
+  };
+  return lines[topic] || `先看${topic}的组成和固定关系。`;
 }
 
 function practiceRequestLine(messages) {
@@ -1074,13 +1146,13 @@ function shouldShowLocalDiagram(messages, profile = {}) {
 
 function isKnowledgeVisualTopic(text) {
   const value = String(text || "");
-  return /函数|图像|坐标|自变量|因变量|定义域|值域|单调|奇偶|一次函数|二次函数|反比例函数|指数函数|对数函数|导数|斜率|长方形|正方形|矩形|梯形|平行四边形|圆柱|圆锥|正方体|长方体|立方体|球|棱柱|棱锥|周长|几何|图形|三角形|四边形|圆|线段|直线|射线|角度|平行|垂直|相似|全等|切线|弦|半径|直径|面积|表面积|侧面积|体积|数列|通项|递推|概率|样本空间|事件/.test(value);
+  return /函数|图像|坐标|自变量|因变量|定义域|值域|单调|奇偶|一次函数|二次函数|反比例函数|指数函数|对数函数|导数|斜率|长方形|正方形|矩形|梯形|平行四边形|菱形|多边形|正多边形|扇形|圆环|半圆|轴对称|对称轴|平移|旋转|放缩|圆柱|圆锥|正方体|长方体|立方体|球|棱柱|棱锥|周长|几何|图形|三角形|四边形|圆|线段|直线|射线|角度|平行|垂直|相似|全等|切线|弦|半径|直径|面积|表面积|侧面积|体积|数列|通项|递推|概率|样本空间|事件/.test(value);
 }
 
 function shouldPreferLocalDiagram(messages, profile = {}) {
   const text = `${latestUserText(messages)}\n${historyText(messages, 4)}`;
-  if (/长方形|正方形|矩形|周长|面积|函数|图像|坐标|自变量|因变量|定义域|值域|单调|奇偶/.test(text)) return true;
-  if (/知识点|概念|学|学习|讲讲|解释|理解|类比|为什么|示意图|图解/.test(text) && isKnowledgeVisualTopic(text)) return true;
+  if (/长方形|正方形|矩形|梯形|平行四边形|菱形|多边形|正多边形|扇形|圆环|半圆|轴对称|对称轴|平移|旋转|放缩|圆柱|圆锥|正方体|长方体|立方体|球|周长|面积|函数|图像|坐标|自变量|因变量|定义域|值域|单调|奇偶/.test(text)) return true;
+  if (/知识点|概念|学|学习|讲讲|解释|理解|类比|为什么|是什么|是啥|定义|性质|特点|示意图|图解/.test(text) && isKnowledgeVisualTopic(text)) return true;
   return false;
 }
 
@@ -1743,6 +1815,20 @@ function buildLocalDiagram(messages, answer = "") {
   };
 }
 
+function buildDirectShapeDefinitionResult(messages, profile = {}) {
+  const answer = shapeDefinitionReply(messages);
+  if (!answer) return null;
+  const topic = extractShapeTopic(latestUserText(messages));
+  const diagram = buildShapeKnowledgeDiagram(topic || latestUserText(messages)) || buildLocalDiagram(messages, answer);
+  return {
+    answer,
+    diagramAction: diagram ? "show" : "hold",
+    diagram,
+    modelTier: "local",
+    model: "shape-definition-direct"
+  };
+}
+
 function diagramPromptText(messages, answer, profile = {}) {
   return [
     `回复模式：${profile?.mode || "启发模式"}`,
@@ -2147,6 +2233,9 @@ async function callDeepSeekWithConfig(messages, profile, config) {
 }
 
 async function callDeepSeek(messages, profile) {
+  const directShapeResult = buildDirectShapeDefinitionResult(messages, profile);
+  if (directShapeResult) return directShapeResult;
+
   const primaryConfig = deepSeekConfig(messages, profile);
   let raw = "";
   let usedConfig = primaryConfig;
@@ -2938,6 +3027,39 @@ async function handleChatStream(req, res) {
     });
     headersSent = true;
     writeSse(res, "start", { ok: true });
+
+    const directShapeResult = buildDirectShapeDefinitionResult(messages, profile);
+    if (directShapeResult) {
+      for (const part of directShapeResult.answer.match(/.{1,24}/gs) || [directShapeResult.answer]) {
+        writeSse(res, "token", { token: part });
+      }
+      const conversation = saveConversationMessages(
+        user,
+        String(body.conversationId || ""),
+        {
+          content: latestUserMessage.content,
+          displayContent: body.displayText || latestUserMessage.displayContent || latestUserMessage.content
+        },
+        {
+          content: directShapeResult.answer,
+          diagramAction: directShapeResult.diagramAction,
+          diagram: directShapeResult.diagram
+        }
+      );
+      writeSse(res, "final", {
+        answer: directShapeResult.answer,
+        diagramAction: directShapeResult.diagramAction,
+        diagram: directShapeResult.diagram,
+        conversation: publicConversation(conversation),
+        modelTier: directShapeResult.modelTier,
+        model: directShapeResult.model,
+        limit: DAILY_LIMIT,
+        remaining: remainingFor(req, identity),
+        user: publicUser(user)
+      });
+      res.end();
+      return;
+    }
 
     const primaryConfig = deepSeekConfig(messages, profile);
     let streamResult;
