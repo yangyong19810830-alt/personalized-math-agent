@@ -5,7 +5,7 @@ const crypto = require("crypto");
 
 const PORT = Number(process.env.PORT || 8787);
 const ROOT = __dirname;
-const APP_VERSION = "sde-knowledge-20260703-xunfei-request-model";
+const APP_VERSION = "sde-knowledge-20260703-xunfei-spark-x";
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || "";
 const DEEPSEEK_BASE_URL = (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com").replace(/\/$/, "");
 const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || "deepseek-v4-pro";
@@ -33,7 +33,7 @@ const VISION_PROVIDER = RAW_VISION_PROVIDER
 const XUNFEI_API_PASSWORD = process.env.XUNFEI_API_PASSWORD || process.env.SPARK_API_PASSWORD || process.env.XUNFEI_API_KEY || process.env.SPARK_API_KEY || process.env.XFYUN_API_KEY || (VISION_PROVIDER === "xunfei" ? VISION_API_KEY : "");
 const XUNFEI_BASE_URL = (process.env.XUNFEI_BASE_URL || process.env.SPARK_BASE_URL || "https://spark-api-open.xf-yun.com/x2/chat/completions").replace(/\/$/, "");
 const XUNFEI_VISION_MODEL = process.env.XUNFEI_VISION_MODEL || process.env.SPARK_VISION_MODEL || process.env.SPARK_MODEL || "x2-vl";
-const XUNFEI_REQUEST_MODEL = process.env.XUNFEI_REQUEST_MODEL || process.env.SPARK_REQUEST_MODEL || XUNFEI_VISION_MODEL;
+const XUNFEI_REQUEST_MODEL = process.env.XUNFEI_REQUEST_MODEL || process.env.SPARK_REQUEST_MODEL || "spark-x";
 const XUNFEI_VISION_TIMEOUT_MS = Number(process.env.XUNFEI_VISION_TIMEOUT_MS || process.env.SPARK_VISION_TIMEOUT_MS || 15000);
 const VISION_BASE_URL = (process.env.VISION_BASE_URL || "https://open.bigmodel.cn/api/paas/v4").replace(/\/$/, "");
 const ZHIPU_VISION_API_KEY = process.env.ZHIPU_API_KEY || (VISION_PROVIDER === "zhipu" ? VISION_API_KEY : "");
