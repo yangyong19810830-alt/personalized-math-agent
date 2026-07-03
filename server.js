@@ -5,7 +5,7 @@ const crypto = require("crypto");
 
 const PORT = Number(process.env.PORT || 8787);
 const ROOT = __dirname;
-const APP_VERSION = "sde-knowledge-20260703-lesson-intent-fix";
+const APP_VERSION = "sde-knowledge-20260703-plane-solid-shape-svg";
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || "";
 const DEEPSEEK_BASE_URL = (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com").replace(/\/$/, "");
 const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || "deepseek-v4-pro";
@@ -778,7 +778,7 @@ function normalizeDiagram(value) {
 
   return {
     title: String(diagram.title || "解题结构图").slice(0, 40),
-    demoType: /^(geometry|geometry-semantic|geometry-example-[a-z-]+|rectangle-measure|function-concept|sequence-concept|geometry-knowledge)$/.test(demoType) ? demoType : "",
+    demoType: /^(geometry|geometry-semantic|geometry-example-[a-z-]+|rectangle-measure|plane-shape|solid-shape|function-concept|sequence-concept|geometry-knowledge)$/.test(demoType) ? demoType : "",
     figure: normalizeFigure(diagram.figure),
     nodes: cleanNodes,
     edges: cleanEdges
@@ -875,7 +875,7 @@ function isKnowledgeLessonRequest(messages) {
   const latest = latestUserText(messages);
   if (!latest || isPlanningText(latest) || isPracticeRequest(messages) || isNewProblemInput(latest)) return false;
   return /我想学|想学习|想了解|学习一下|学一下|教我|讲讲|讲一下|开始学|相关知识|知识点|怎么学|如何学/.test(latest)
-    && /长方形|正方形|矩形|梯形|平行四边形|菱形|多边形|周长|面积|体积|函数|几何|三角形|四边形|圆|圆形|线段|直线|射线|角|平行|垂直|相似|全等|切线|数列|概率|方程|不等式|分数|小数|百分数|导数/.test(latest);
+    && /长方形|正方形|矩形|梯形|平行四边形|菱形|多边形|圆柱|圆锥|正方体|长方体|立方体|球|球体|棱柱|棱锥|周长|面积|表面积|侧面积|体积|函数|几何|三角形|四边形|圆|圆形|线段|直线|射线|角|平行|垂直|相似|全等|切线|数列|概率|方程|不等式|分数|小数|百分数|导数/.test(latest);
 }
 
 function fallbackLearningPlanReply(messages, profile = {}) {
@@ -1074,7 +1074,7 @@ function shouldShowLocalDiagram(messages, profile = {}) {
 
 function isKnowledgeVisualTopic(text) {
   const value = String(text || "");
-  return /函数|图像|坐标|自变量|因变量|定义域|值域|单调|奇偶|一次函数|二次函数|反比例函数|指数函数|对数函数|导数|斜率|长方形|正方形|矩形|周长|几何|图形|三角形|四边形|圆|线段|直线|射线|角度|平行|垂直|相似|全等|切线|弦|半径|直径|面积|体积|数列|通项|递推|概率|样本空间|事件/.test(value);
+  return /函数|图像|坐标|自变量|因变量|定义域|值域|单调|奇偶|一次函数|二次函数|反比例函数|指数函数|对数函数|导数|斜率|长方形|正方形|矩形|梯形|平行四边形|圆柱|圆锥|正方体|长方体|立方体|球|棱柱|棱锥|周长|几何|图形|三角形|四边形|圆|线段|直线|射线|角度|平行|垂直|相似|全等|切线|弦|半径|直径|面积|表面积|侧面积|体积|数列|通项|递推|概率|样本空间|事件/.test(value);
 }
 
 function shouldPreferLocalDiagram(messages, profile = {}) {
@@ -1202,13 +1202,335 @@ function buildRectangleMeasureDiagram(context) {
   };
 }
 
+function buildPlaneShapeDiagram(context) {
+  const value = String(context || "");
+  const candidates = [
+    {
+      pattern: /平行四边形/,
+      kind: "parallelogram",
+      title: "平行四边形结构示意图",
+      object: "平行四边形",
+      parts: ["两组对边分别平行", "对边相等", "对角相等", "对角线互相平分"],
+      formulas: ["面积=底×高", "可割补成长方形理解面积"],
+      note: "平行四边形的核心不是长方形本身，而是两组对边分别平行带来的边、角、面积和对角线关系。"
+    },
+    {
+      pattern: /扇形/,
+      kind: "sector",
+      title: "扇形结构示意图",
+      object: "扇形",
+      parts: ["圆心 O", "半径 r", "圆心角 θ", "弧长"],
+      formulas: ["弧长=圆周长×θ/360°", "面积=圆面积×θ/360°"],
+      note: "扇形不是普通三角形，关键是半径、圆心角和弧组成的一块圆。"
+    },
+    {
+      pattern: /圆环|环形/,
+      kind: "annulus",
+      title: "圆环结构示意图",
+      object: "圆环",
+      parts: ["外圆半径 R", "内圆半径 r", "外圆面积", "内圆面积"],
+      formulas: ["圆环面积=πR²-πr²", "也可写成 π×(R²-r²)"],
+      note: "圆环要看成大圆挖去小圆，重点是外半径和内半径。"
+    },
+    {
+      pattern: /半圆/,
+      kind: "semicircle",
+      title: "半圆结构示意图",
+      object: "半圆",
+      parts: ["直径 d", "半径 r", "半圆弧", "直径边"],
+      formulas: ["面积=πr²÷2", "周长=πr+2r"],
+      note: "半圆周长包含弧长和直径，不能只算圆周长的一半。"
+    },
+    {
+      pattern: /菱形/,
+      kind: "rhombus",
+      title: "菱形结构示意图",
+      object: "菱形",
+      parts: ["四条边相等", "对边平行", "对角线互相垂直", "对角线互相平分"],
+      formulas: ["面积=底×高", "面积=两条对角线乘积÷2"],
+      note: "菱形的核心是四边相等，并且对角线互相垂直平分。"
+    },
+    {
+      pattern: /等腰梯形/,
+      kind: "isoscelesTrapezoid",
+      title: "等腰梯形结构示意图",
+      object: "等腰梯形",
+      parts: ["上底", "下底", "两腰相等", "同底角相等"],
+      formulas: ["面积=(上底+下底)×高÷2"],
+      note: "等腰梯形比普通梯形多了两腰相等和同底角相等。"
+    },
+    {
+      pattern: /直角梯形/,
+      kind: "rightTrapezoid",
+      title: "直角梯形结构示意图",
+      object: "直角梯形",
+      parts: ["上底", "下底", "一条腰垂直于底", "高"],
+      formulas: ["面积=(上底+下底)×高÷2"],
+      note: "直角梯形有一条腰本身就是高，先找垂直关系。"
+    },
+    {
+      pattern: /正多边形|正五边形|正六边形|正七边形|正八边形/,
+      kind: "regularPolygon",
+      title: "正多边形结构示意图",
+      object: "正多边形",
+      parts: ["各边相等", "各角相等", "中心", "可分成若干全等三角形"],
+      formulas: ["周长=边长×边数", "面积=周长×边心距÷2"],
+      note: "正多边形的核心是边和角都一样，可从中心切成若干个全等三角形。"
+    },
+    {
+      pattern: /组合图形|阴影面积|割补|拼接|等积变形/,
+      kind: "composite",
+      title: "组合图形结构示意图",
+      object: "组合图形",
+      parts: ["基本图形", "重叠/挖去部分", "分割线", "可移动的等面积部分"],
+      formulas: ["总面积=相加-重叠", "阴影面积=大区域-空白区域"],
+      note: "组合图形先拆成会算的基本图形，再用加、减、割补处理。"
+    },
+    {
+      pattern: /轴对称|对称轴/,
+      kind: "symmetry",
+      title: "轴对称结构示意图",
+      object: "轴对称图形",
+      parts: ["对称轴", "对应点", "对应线段", "距离相等"],
+      formulas: ["对应点到对称轴距离相等"],
+      note: "轴对称要看对应点是否隔着对称轴一一相对。"
+    },
+    {
+      pattern: /平移/,
+      kind: "translation",
+      title: "平移结构示意图",
+      object: "平移",
+      parts: ["原图形", "新图形", "方向", "距离"],
+      formulas: ["形状大小不变，只改变位置"],
+      note: "平移只移动位置，不改变方向、形状和大小。"
+    },
+    {
+      pattern: /旋转/,
+      kind: "rotation",
+      title: "旋转结构示意图",
+      object: "旋转",
+      parts: ["旋转中心 O", "旋转方向", "旋转角", "对应点"],
+      formulas: ["对应点到旋转中心距离相等"],
+      note: "旋转要抓住中心、方向和角度。"
+    },
+    {
+      pattern: /放缩|缩放|相似/,
+      kind: "similarity",
+      title: "相似/放缩结构示意图",
+      object: "相似图形",
+      parts: ["对应角相等", "对应边成比例", "放缩中心", "比例 k"],
+      formulas: ["周长比=k", "面积比=k²"],
+      note: "相似图形形状不变，大小按同一个比例改变。"
+    }
+  ];
+  const meta = candidates.find(item => item.pattern.test(value));
+  if (!meta) return null;
+  return {
+    title: meta.title,
+    demoType: "plane-shape",
+    figure: { kind: meta.kind, parts: meta.parts, formulas: meta.formulas },
+    nodes: [
+      { id: "n1", label: meta.object, type: "given" },
+      { id: "n2", label: meta.parts[0], type: "given" },
+      { id: "n3", label: meta.parts[1] || "关键组成", type: "given" },
+      { id: "n4", label: meta.parts[2] || "关键关系", type: "relation" },
+      { id: "n5", label: meta.formulas[0], type: "result" },
+      { id: "n6", label: meta.formulas[1] || "关系迁移", type: "result" }
+    ],
+    edges: [
+      { from: "n1", to: "n2", label: "先看对象" },
+      { from: "n2", to: "n3", label: "找组成" },
+      { from: "n3", to: "n4", label: "定关系" },
+      { from: "n4", to: "n5", label: "进入公式" },
+      { from: "n4", to: "n6", label: "迁移理解" }
+    ],
+    note: meta.note
+  };
+}
+
+function buildSolidShapeDiagram(context) {
+  const value = String(context || "");
+  const kind = /圆锥/.test(value)
+    ? "cone"
+    : (/正方体|立方体/.test(value) ? "cube" : (/长方体/.test(value) ? "cuboid" : (/球|球体/.test(value) ? "sphere" : (/圆柱/.test(value) ? "cylinder" : ""))));
+  if (!kind) return null;
+  const meta = {
+    cylinder: {
+      title: "圆柱结构示意图",
+      object: "圆柱",
+      parts: ["上底圆", "下底圆", "高 h", "侧面展开是长方形"],
+      formulas: ["体积=底面积×高", "侧面积=底面周长×高", "表面积=侧面积+两个底面积"],
+      note: "圆柱要看两个相同的圆形底面和一条垂直的高。"
+    },
+    cone: {
+      title: "圆锥结构示意图",
+      object: "圆锥",
+      parts: ["一个圆形底面", "顶点", "高 h", "母线 l"],
+      formulas: ["体积=底面积×高÷3", "侧面积=πrl", "表面积=侧面积+底面积"],
+      note: "圆锥和圆柱相比，关键多了顶点，体积是同底等高圆柱的三分之一。"
+    },
+    cube: {
+      title: "正方体结构示意图",
+      object: "正方体",
+      parts: ["6个全等正方形面", "12条相等棱", "棱长 a"],
+      formulas: ["体积=a×a×a", "表面积=6×a×a"],
+      note: "正方体的核心是长、宽、高都相等。"
+    },
+    cuboid: {
+      title: "长方体结构示意图",
+      object: "长方体",
+      parts: ["长 a", "宽 b", "高 h", "相对的面相等"],
+      formulas: ["体积=长×宽×高", "表面积=2×(长×宽+长×高+宽×高)"],
+      note: "长方体要把三个互相垂直的方向看清：长、宽、高。"
+    },
+    sphere: {
+      title: "球结构示意图",
+      object: "球",
+      parts: ["球心 O", "半径 r", "直径 d=2r", "表面到球心距离相等"],
+      formulas: ["体积=4/3×πr³", "表面积=4πr²"],
+      note: "球的核心是所有表面点到球心的距离都等于半径。"
+    }
+  }[kind];
+  return {
+    title: meta.title,
+    demoType: "solid-shape",
+    figure: { kind, parts: meta.parts, formulas: meta.formulas },
+    nodes: [
+      { id: "n1", label: meta.object, type: "given" },
+      { id: "n2", label: meta.parts[0], type: "given" },
+      { id: "n3", label: meta.parts[1] || "关键尺寸", type: "given" },
+      { id: "n4", label: meta.parts[2] || "高/半径", type: "relation" },
+      { id: "n5", label: meta.formulas[0], type: "result" },
+      { id: "n6", label: meta.formulas[1] || "表面积关系", type: "result" }
+    ],
+    edges: [
+      { from: "n1", to: "n2", label: "先看组成" },
+      { from: "n2", to: "n3", label: "找关键尺寸" },
+      { from: "n3", to: "n4", label: "确定高度/半径" },
+      { from: "n4", to: "n5", label: "体积入口" },
+      { from: "n4", to: "n6", label: "表面积入口" }
+    ],
+    note: meta.note
+  };
+}
+
+function buildShapeKnowledgeDiagram(context) {
+  const value = String(context || "");
+  const plane = buildPlaneShapeDiagram(value);
+  if (plane) return plane;
+  const solid = buildSolidShapeDiagram(value);
+  if (solid) return solid;
+  if (/平行四边形/.test(value)) {
+    return {
+      title: "平行四边形结构示意图",
+      demoType: "geometry-semantic",
+      figure: {
+        kind: "parallelogram",
+        labels: ["A", "B", "C", "D", "O"],
+        points: [
+          { id: "A", x: 58, y: 178 },
+          { id: "B", x: 238, y: 178 },
+          { id: "C", x: 268, y: 76 },
+          { id: "D", x: 88, y: 76 },
+          { id: "O", x: 163, y: 127 }
+        ],
+        segments: [
+          { from: "A", to: "B" },
+          { from: "B", to: "C" },
+          { from: "C", to: "D" },
+          { from: "D", to: "A" },
+          { from: "A", to: "C", label: "对角线" },
+          { from: "B", to: "D", label: "对角线" }
+        ],
+        relations: [
+          { type: "parallel", a: "AB", b: "CD", label: "AB ∥ CD" },
+          { type: "parallel", a: "AD", b: "BC", label: "AD ∥ BC" },
+          { type: "equal", a: "AB", b: "CD", label: "AB = CD" },
+          { type: "equal", a: "AD", b: "BC", label: "AD = BC" },
+          { type: "equalAngle", a: "∠A", b: "∠C", label: "∠A = ∠C" }
+        ]
+      },
+      nodes: [
+        { id: "n1", label: "一个四边形", type: "given" },
+        { id: "n2", label: "两组对边分别平行", type: "relation" },
+        { id: "n3", label: "对边相等", type: "result" },
+        { id: "n4", label: "对角相等", type: "result" },
+        { id: "n5", label: "面积=底×高", type: "result" },
+        { id: "n6", label: "对角线互相平分", type: "relation" }
+      ],
+      edges: [
+        { from: "n1", to: "n2", label: "定义入口" },
+        { from: "n2", to: "n3", label: "推出边关系" },
+        { from: "n2", to: "n4", label: "推出角关系" },
+        { from: "n2", to: "n5", label: "转化成长方形" },
+        { from: "n2", to: "n6", label: "看对角线" }
+      ],
+      note: "平行四边形的核心不是“三角形”，而是两组对边分别平行带来的边、角、面积和对角线关系。"
+    };
+  }
+  if (/梯形/.test(value)) {
+    return {
+      title: "梯形结构示意图",
+      demoType: "geometry-semantic",
+      figure: {
+        kind: "trapezoid",
+        labels: ["A", "B", "C", "D", "E"],
+        points: [
+          { id: "A", x: 58, y: 178 },
+          { id: "B", x: 252, y: 178 },
+          { id: "C", x: 210, y: 72 },
+          { id: "D", x: 112, y: 72 },
+          { id: "E", x: 210, y: 178 }
+        ],
+        segments: [
+          { from: "A", to: "B" },
+          { from: "B", to: "C" },
+          { from: "C", to: "D" },
+          { from: "D", to: "A" },
+          { from: "C", to: "E", label: "高" }
+        ],
+        relations: [
+          { type: "parallel", a: "AB", b: "CD", label: "AB ∥ CD" },
+          { type: "perpendicular", a: "CE", b: "AB", label: "CE ⟂ AB" },
+          { type: "formula", label: "面积=(上底+下底)×高÷2" }
+        ]
+      },
+      nodes: [
+        { id: "n1", label: "只有一组对边平行", type: "given" },
+        { id: "n2", label: "上底、下底、高", type: "relation" },
+        { id: "n3", label: "面积公式", type: "result" },
+        { id: "n4", label: "可分割/拼成长方形", type: "step" },
+        { id: "n5", label: "等腰梯形另有性质", type: "check" }
+      ],
+      edges: [
+        { from: "n1", to: "n2", label: "看平行边" },
+        { from: "n2", to: "n3", label: "平均底×高" },
+        { from: "n2", to: "n4", label: "理解公式" },
+        { from: "n1", to: "n5", label: "分类判断" }
+      ],
+      note: "梯形的核心是只有一组对边平行，面积要看上底、下底和高。"
+    };
+  }
+  return null;
+}
+
 function buildLocalDiagram(messages, answer = "") {
   const text = latestUserText(messages).replace(/\s+/g, " ");
   const context = `${text}\n${answer}`.replace(/\s+/g, " ");
 
+  const explicitShapeDiagram = buildShapeKnowledgeDiagram(text);
+  if (explicitShapeDiagram && /知识|概念|学习|学|讲|解释|理解|相关/.test(text)) {
+    return explicitShapeDiagram;
+  }
+
+  const shapeDiagram = buildShapeKnowledgeDiagram(context);
+  if (shapeDiagram && /知识|概念|学习|学|讲|解释|理解|相关/.test(context)) {
+    return shapeDiagram;
+  }
+
   if (/长方形|正方形|矩形|周长|面积/.test(context)
     && /长方形|正方形|矩形/.test(context)
-    && !/三角形|圆|梯形|切线|弦|半径|直径|相似|全等|证明/.test(context)) {
+    && !/平行四边形|菱形|多边形|四边形|三角形|圆|梯形|切线|弦|半径|直径|相似|全等|证明/.test(context)) {
     return buildRectangleMeasureDiagram(context);
   }
 
