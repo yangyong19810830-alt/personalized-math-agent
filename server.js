@@ -5,7 +5,7 @@ const crypto = require("crypto");
 
 const PORT = Number(process.env.PORT || 8787);
 const ROOT = __dirname;
-const APP_VERSION = "sde-knowledge-20260703-xunfei-jpg-image";
+const APP_VERSION = "sde-knowledge-20260703-xunfei-image-variants";
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || "";
 const DEEPSEEK_BASE_URL = (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com").replace(/\/$/, "");
 const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || "deepseek-v4-pro";
@@ -2422,6 +2422,10 @@ function normalizeVisionImage(image, config) {
   return value;
 }
 
+function bareImageBase64(image) {
+  return String(image || "").replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/, "");
+}
+
 async function callVisionWithProvider(image, provider, hint = "") {
   const config = visionProviderConfig(provider);
   if (!config.apiKey) {
@@ -2443,6 +2447,7 @@ async function callVisionWithProvider(image, provider, hint = "") {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), config.timeoutMs);
   let response;
+  let responseData = null;
   try {
     if (config.endpoint === "responses") {
       response = await fetch(`${config.baseUrl}/responses`, {
@@ -2468,29 +2473,57 @@ async function callVisionWithProvider(image, provider, hint = "") {
         signal: controller.signal
       });
     } else {
-      response = await fetch(chatCompletionsUrl(config.baseUrl), {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${config.apiKey}`,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          ...(config.omitModel ? {} : { model: config.requestModel || config.model }),
-          temperature: config.temperature,
-          max_tokens: VISION_MAX_TOKENS,
-          messages: [
-            { role: "system", content: buildVisionSystemPrompt() },
-            {
-              role: "user",
-              content: [
-                { type: "text", text: buildVisionPrompt(hintPrompt) },
-                { type: "image_url", image_url: { url: imageForProvider } }
-              ]
-            }
+      const promptText = buildVisionPrompt(hintPrompt);
+      const bareImage = bareImageBase64(image);
+      const messageVariants = provider === "xunfei"
+        ? [
+            [
+              { role: "system", content: buildVisionSystemPrompt() },
+              { role: "user", content: [{ type: "text", text: promptText }, { type: "image_url", image_url: { url: imageForProvider } }] }
+            ],
+            [
+              { role: "system", content: buildVisionSystemPrompt() },
+              { role: "user", content: [{ type: "text", text: promptText }, { type: "image_url", image_url: { url: bareImage } }] }
+            ],
+            [
+              { role: "system", content: buildVisionSystemPrompt() },
+              { role: "user", content: [{ type: "text", text: promptText }, { type: "image", image: bareImage }] }
+            ]
           ]
-        }),
-        signal: controller.signal
-      });
+        : [
+            [
+              { role: "system", content: buildVisionSystemPrompt() },
+              {
+                role: "user",
+                content: [
+                  { type: "text", text: promptText },
+                  { type: "image_url", image_url: { url: imageForProvider } }
+                ]
+              }
+            ]
+          ];
+
+      for (let i = 0; i < messageVariants.length; i += 1) {
+        response = await fetch(chatCompletionsUrl(config.baseUrl), {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${config.apiKey}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            ...(config.omitModel ? {} : { model: config.requestModel || config.model }),
+            temperature: config.temperature,
+            max_tokens: VISION_MAX_TOKENS,
+            messages: messageVariants[i]
+          }),
+          signal: controller.signal
+        });
+        responseData = await response.json().catch(() => ({}));
+        const apiMessage = responseData.error?.message || responseData.message || "";
+        if (response.ok || !(provider === "xunfei" && /image type not support/i.test(apiMessage)) || i === messageVariants.length - 1) {
+          break;
+        }
+      }
     }
   } catch (error) {
     if (error.name === "AbortError") {
@@ -2501,7 +2534,7 @@ async function callVisionWithProvider(image, provider, hint = "") {
     clearTimeout(timeout);
   }
 
-  const data = await response.json().catch(() => ({}));
+  const data = responseData || await response.json().catch(() => ({}));
   if (!response.ok) {
     const apiMessage = data.error?.message || data.message || `图片识别 API 错误：${response.status}`;
     if (provider === "xunfei" && /invalid param model/i.test(apiMessage)) {
