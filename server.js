@@ -5,7 +5,7 @@ const crypto = require("crypto");
 
 const PORT = Number(process.env.PORT || 8787);
 const ROOT = __dirname;
-const APP_VERSION = "sde-knowledge-20260703-geometry-json-svg";
+const APP_VERSION = "sde-knowledge-20260703-lesson-intent-fix";
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || "";
 const DEEPSEEK_BASE_URL = (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com").replace(/\/$/, "");
 const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || "deepseek-v4-pro";
@@ -631,6 +631,7 @@ function userMessageCount(messages = []) {
 function systemPrompt(profile, messages = []) {
   const mode = profile?.mode === "讲解模式" ? "讲解模式" : "启发模式";
   const isFirstUserTurn = userMessageCount(messages) <= 1;
+  const isKnowledgeTurn = isKnowledgeLessonRequest(messages) || isLearningPlanRequest(messages, profile);
   const modeRules = mode === "讲解模式"
     ? [
         "当前回复模式：讲解模式。",
@@ -642,7 +643,9 @@ function systemPrompt(profile, messages = []) {
     : [
         "当前回复模式：启发模式。",
         "启发不是越短越好，要保证学生能继续走。回复建议 160-320 个汉字。",
-        isFirstUserTurn
+        isKnowledgeTurn
+          ? "这是用户在请求学习某个知识点或学习规划，不是学生发来的题目，也不是学生作答。不要说“这是新题”，不要追问已知什么、要求什么；请直接进入知识点小课或学习安排。"
+          : isFirstUserTurn
           ? "这是用户刚发来的题目，不是学生作答。不要说“你已经抓住了”“你算对了”“你这一步”等反馈语。应先判断题目结构，给一个观察入口和一个具体追问。"
           : "这是学生已经有过回答后的继续对话。可以先总结学生已完成的部分，纠正一个关键误区，补充必要背景，只开放一个新的台阶，最后问一个具体问题。",
         "如果学生已经连续回答了 2 轮以上，可以把前面内容整合成一个小结，再推进一小步，避免兜圈子。",
@@ -871,8 +874,8 @@ function isLearningPlanRequest(messages, profile = {}) {
 function isKnowledgeLessonRequest(messages) {
   const latest = latestUserText(messages);
   if (!latest || isPlanningText(latest) || isPracticeRequest(messages) || isNewProblemInput(latest)) return false;
-  return /我想学|想学习|学习一下|学一下|教我|讲讲|讲一下|开始学|知识点/.test(latest)
-    && /长方形|正方形|周长|面积|体积|函数|几何|三角形|四边形|圆|数列|概率|方程|不等式|分数|小数|百分数|导数/.test(latest);
+  return /我想学|想学习|想了解|学习一下|学一下|教我|讲讲|讲一下|开始学|相关知识|知识点|怎么学|如何学/.test(latest)
+    && /长方形|正方形|矩形|梯形|平行四边形|菱形|多边形|周长|面积|体积|函数|几何|三角形|四边形|圆|圆形|线段|直线|射线|角|平行|垂直|相似|全等|切线|数列|概率|方程|不等式|分数|小数|百分数|导数/.test(latest);
 }
 
 function fallbackLearningPlanReply(messages, profile = {}) {
