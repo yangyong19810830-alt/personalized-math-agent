@@ -839,6 +839,7 @@
     let authToken = localStorage.getItem("math_agent_token") || "";
     let currentUser = null;
     let selectedImageData = "";
+    let isRecognizingImage = false;
     let deferredInstallPrompt = null;
     const messages = document.querySelector("#messages");
     const quota = document.querySelector("#quota");
@@ -871,8 +872,9 @@
 
     function updateSendButtonMode() {
       if (!sendButton) return;
-      sendButton.textContent = selectedImageData ? "识别并提问" : "发送";
-      sendButton.title = selectedImageData ? "把题图和输入框里的补充说明一起识别" : "发送文字";
+      sendButton.disabled = isRecognizingImage;
+      sendButton.textContent = isRecognizingImage ? "???..." : (selectedImageData ? "?????" : "??");
+      sendButton.title = selectedImageData ? "?????????????????" : "????";
     }
 
     function setupPwaInstall() {
@@ -2448,10 +2450,13 @@
     }
 
     async function recognizeSelectedImage() {
+      if (isRecognizingImage) return false;
       if (!selectedImageData) {
         addMessage("???????????", "error");
         return false;
       }
+      isRecognizingImage = true;
+      updateSendButtonMode();
       const hint = document.querySelector("#question").value.trim();
       const loading = addMessage("??????????? 10 ????...");
       try {
@@ -2491,6 +2496,9 @@
         }
         addMessage("?????????????????????????", "error");
         return false;
+      } finally {
+        isRecognizingImage = false;
+        updateSendButtonMode();
       }
     }
 
