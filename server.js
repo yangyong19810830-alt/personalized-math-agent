@@ -5,7 +5,7 @@ const crypto = require("crypto");
 
 const PORT = Number(process.env.PORT || 8787);
 const ROOT = __dirname;
-const APP_VERSION = "sde-knowledge-20260703-xunfei-fast-vision";
+const APP_VERSION = "sde-knowledge-20260703-xunfei-x2vl-model-alias";
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || "";
 const DEEPSEEK_BASE_URL = (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com").replace(/\/$/, "");
 const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || "deepseek-v4-pro";
@@ -33,6 +33,7 @@ const VISION_PROVIDER = RAW_VISION_PROVIDER
 const XUNFEI_API_PASSWORD = process.env.XUNFEI_API_PASSWORD || process.env.SPARK_API_PASSWORD || process.env.XUNFEI_API_KEY || process.env.SPARK_API_KEY || process.env.XFYUN_API_KEY || (VISION_PROVIDER === "xunfei" ? VISION_API_KEY : "");
 const XUNFEI_BASE_URL = (process.env.XUNFEI_BASE_URL || process.env.SPARK_BASE_URL || "https://spark-api-open.xf-yun.com/x2/chat/completions").replace(/\/$/, "");
 const XUNFEI_VISION_MODEL = process.env.XUNFEI_VISION_MODEL || process.env.SPARK_VISION_MODEL || process.env.SPARK_MODEL || "x2-vl";
+const XUNFEI_REQUEST_MODEL = /^x2-vl$/i.test(XUNFEI_VISION_MODEL) ? "x2" : XUNFEI_VISION_MODEL;
 const XUNFEI_VISION_TIMEOUT_MS = Number(process.env.XUNFEI_VISION_TIMEOUT_MS || process.env.SPARK_VISION_TIMEOUT_MS || 15000);
 const VISION_BASE_URL = (process.env.VISION_BASE_URL || "https://open.bigmodel.cn/api/paas/v4").replace(/\/$/, "");
 const ZHIPU_VISION_API_KEY = process.env.ZHIPU_API_KEY || (VISION_PROVIDER === "zhipu" ? VISION_API_KEY : "");
@@ -2307,6 +2308,7 @@ function visionProviderConfig(provider) {
       apiKey: XUNFEI_API_PASSWORD,
       baseUrl: XUNFEI_BASE_URL,
       model: XUNFEI_VISION_MODEL,
+      requestModel: XUNFEI_REQUEST_MODEL,
       temperature: 0,
       timeoutMs: XUNFEI_VISION_TIMEOUT_MS,
       useBareBase64: false,
@@ -2440,7 +2442,7 @@ async function callVisionWithProvider(image, provider, hint = "") {
           "Content-Type": "application/json"
         },
         body: JSON.stringify({
-          model: config.model,
+          model: config.requestModel || config.model,
           instructions: buildVisionSystemPrompt(),
           max_output_tokens: VISION_MAX_TOKENS,
           input: [
@@ -2463,7 +2465,7 @@ async function callVisionWithProvider(image, provider, hint = "") {
           "Content-Type": "application/json"
         },
         body: JSON.stringify({
-          model: config.model,
+          model: config.requestModel || config.model,
           temperature: config.temperature,
           max_tokens: VISION_MAX_TOKENS,
           messages: [
@@ -3263,6 +3265,7 @@ const server = http.createServer((req, res) => {
       visionFallbackEnabled: VISION_FALLBACK_ENABLED,
       xunfeiConfigured: Boolean(XUNFEI_API_PASSWORD),
       xunfeiVisionModel: XUNFEI_VISION_MODEL,
+      xunfeiRequestModel: XUNFEI_REQUEST_MODEL,
       xunfeiBaseUrl: XUNFEI_BASE_URL,
       openaiVisionModel: OPENAI_VISION_MODEL,
       openaiDiagramModel: OPENAI_DIAGRAM_MODEL
