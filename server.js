@@ -5,7 +5,7 @@ const crypto = require("crypto");
 
 const PORT = Number(process.env.PORT || 8787);
 const ROOT = __dirname;
-const APP_VERSION = "sde-knowledge-20260704-direct-answer-fix";
+const APP_VERSION = "sde-knowledge-20260704-followup-question-fix";
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || "";
 const DEEPSEEK_BASE_URL = (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com").replace(/\/$/, "");
 const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || "deepseek-v4-pro";
@@ -909,6 +909,7 @@ function fallbackLearningPlanReply(messages, profile = {}) {
 function isDirectUserQuestion(messages) {
   const latest = latestUserText(messages);
   if (isDirectAnswerRequest(messages)) return true;
+  if (isProblemContinuationRequest(messages)) return true;
   return /为什么|为啥|怎么会|凭什么|我问的是|不是这个意思|不回答|没回答|先回答|哪里体现|什么意思|解释一下|听不懂|没懂|不明白|不对|是什么|是啥|啥是|什么是|定义|性质|特点/.test(latest);
 }
 
@@ -938,8 +939,17 @@ function isDirectAnswerRequest(messages) {
   ].some(term => latest.includes(term));
 }
 
+function isProblemContinuationRequest(messages) {
+  const latest = latestUserText(messages).trim();
+  if (!latest) return false;
+  return /做第[一二三四五六七八九十\d]+[问小题]|讲第[一二三四五六七八九十\d]+[问小题]|看第[一二三四五六七八九十\d]+[问小题]|第[一二三四五六七八九十\d]+[问小题]|下一问|下一题|继续做|接着做|往下做|继续讲|接着讲/.test(latest);
+}
+
 function directQuestionLine(messages) {
   if (!isDirectUserQuestion(messages)) return "";
+  if (isProblemContinuationRequest(messages)) {
+    return "当前用户是在要求继续做指定小问或继续下一问，例如“做第二问”。这不是学生回答错误，也不是卡住求入口。请直接接着原题进入对应小问：先用一句话确认要做哪一问，再基于已识别题干和图形继续讲解或启发。不要输出 A/B/C/D 入口选择，不要说“我们先别在同一个地方绕了”。如果上下文缺少该小问题干，只说明需要补充对应小问的题干或清晰图片。";
+  }
   if (isDirectAnswerRequest(messages)) {
     return "当前用户明确要求直接答案或直接讲解。请立即回应这个问题本身，不要再让用户选 A/B/C/D，不要再套用“先确认对象/单位/关系”的入口模板。如果能从上下文算出，就直接算到最后；如果原题信息不足，只说清缺哪一条关键条件，请用户重发题干或清晰题图，不要让用户做入口选择。";
   }
@@ -1045,6 +1055,9 @@ function choiceScaffoldReply() {
 
 function directQuestionFallback(messages) {
   const latest = latestUserText(messages);
+  if (isProblemContinuationRequest(messages)) {
+    return "好的，我们接着做你指定的这一问。\n\n不过当前对话里这一小问的完整题干不够清楚，我不能硬编步骤。请把这一问的文字贴出来，或重新发一张包含这一问的清晰题图；我会直接从这一问开始讲，不再让你选 A/B/C/D。";
+  }
   if (isDirectAnswerRequest(messages)) {
     return "我不再让你选入口了。要给出最后答案，我需要完整题干或清晰题图；当前对话里只保留了部分关系，我不能负责任地报一个数。\n\n请把原题文字贴出来，或重新发一张清晰题图，我会直接算到最后。";
   }
