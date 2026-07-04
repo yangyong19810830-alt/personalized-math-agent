@@ -873,8 +873,8 @@
     function updateSendButtonMode() {
       if (!sendButton) return;
       sendButton.disabled = isRecognizingImage;
-      sendButton.textContent = isRecognizingImage ? "???..." : (selectedImageData ? "?????" : "??");
-      sendButton.title = selectedImageData ? "?????????????????" : "????";
+      sendButton.textContent = isRecognizingImage ? "\u8bc6\u522b\u4e2d..." : (selectedImageData ? "\u8bc6\u522b\u5e76\u63d0\u95ee" : "\u53d1\u9001");
+      sendButton.title = selectedImageData ? "\u628a\u9898\u56fe\u548c\u8f93\u5165\u6846\u91cc\u7684\u8865\u5145\u8bf4\u660e\u4e00\u8d77\u8bc6\u522b" : "\u53d1\u9001\u6587\u5b57";
     }
 
     function setupPwaInstall() {
@@ -2442,7 +2442,7 @@
 
     async function continueWithTypedProblem(hint, message) {
       if (!looksLikeProblemText(hint)) return false;
-      addMessage(message || "图片识别暂时失败，已先根据你输入的题目文字继续。", "error");
+      addMessage(message || "\u56fe\u7247\u8bc6\u522b\u6682\u65f6\u5931\u8d25\uff0c\u5df2\u5148\u6839\u636e\u4f60\u8f93\u5165\u7684\u9898\u76ee\u6587\u5b57\u7ee7\u7eed\u3002", "error");
       document.querySelector("#question").value = "";
       clearSelectedImage();
       await send(hint, { displayText: hint });
@@ -2452,13 +2452,13 @@
     async function recognizeSelectedImage() {
       if (isRecognizingImage) return false;
       if (!selectedImageData) {
-        addMessage("???????????", "error");
+        addMessage("\u8bf7\u5148\u4e0a\u4f20\u4e00\u5f20\u9898\u76ee\u56fe\u7247\u3002", "error");
         return false;
       }
       isRecognizingImage = true;
       updateSendButtonMode();
       const hint = document.querySelector("#question").value.trim();
-      const loading = addMessage("??????????? 10 ????...");
+      const loading = addMessage("\u6b63\u5728\u8bc6\u522b\u9898\u76ee\u56fe\u7247\uff0c\u901a\u5e38 10 \u79d2\u5185\u5b8c\u6210...");
       try {
         const res = await fetch("/api/vision", {
           method: "POST",
@@ -2468,33 +2468,33 @@
         const data = await res.json();
         loading.remove();
         if (!res.ok) {
-          if (await continueWithTypedProblem(hint, data.error || "????????????????????????")) {
+          if (await continueWithTypedProblem(hint, data.error || "\u56fe\u7247\u8bc6\u522b\u6682\u65f6\u5931\u8d25\uff0c\u5df2\u5148\u6839\u636e\u4f60\u8f93\u5165\u7684\u9898\u76ee\u6587\u5b57\u7ee7\u7eed\u3002")) {
             return true;
           }
-          addMessage(data.error || "???????", "error");
+          addMessage(data.error || "\u56fe\u7247\u8bc6\u522b\u5931\u8d25\u3002", "error");
           return false;
         }
         const recognizedText = String(data.text || "").trim();
         if (!recognizedText) {
-          if (await continueWithTypedProblem(hint, "??????????????????????????")) {
+          if (await continueWithTypedProblem(hint, "\u56fe\u7247\u6ca1\u6709\u8bfb\u51fa\u6e05\u6670\u6587\u5b57\uff0c\u5df2\u5148\u6839\u636e\u4f60\u8f93\u5165\u7684\u9898\u76ee\u6587\u5b57\u7ee7\u7eed\u3002")) {
             return true;
           }
-          addMessage("?????????????????????????????????????????", "error");
+          addMessage("\u56fe\u7247\u8bc6\u522b\u5b8c\u6210\u4e86\uff0c\u4f46\u6ca1\u6709\u8bfb\u5230\u6e05\u6670\u7684\u9898\u76ee\u5185\u5bb9\u3002\u53ef\u4ee5\u6362\u4e00\u5f20\u66f4\u6e05\u6670\u7684\u56fe\u7247\uff0c\u6216\u624b\u52a8\u8f93\u5165\u9898\u76ee\u3002", "error");
           return false;
         }
         const combinedText = hint
-          ? "????????" + hint + "\n\n????????\n" + recognizedText
-          : "????????\n" + recognizedText;
+          ? "\u3010\u7528\u6237\u8865\u5145\u8bf4\u660e\u3011" + hint + "\n\n\u3010\u56fe\u7247\u8bc6\u522b\u7ed3\u679c\u3011\n" + recognizedText
+          : "\u3010\u56fe\u7247\u8bc6\u522b\u7ed3\u679c\u3011\n" + recognizedText;
         document.querySelector("#question").value = "";
-        await send(combinedText, { displayText: hint ? "?????????????????" : "??????????" });
+        await send(combinedText, { displayText: hint ? "\u6211\u4e0a\u4f20\u4e86\u4e00\u5f20\u9898\u76ee\u56fe\u7247\uff0c\u5e76\u8865\u5145\u4e86\u8bf4\u660e" : "\u6211\u4e0a\u4f20\u4e86\u4e00\u5f20\u9898\u76ee\u56fe\u7247" });
         clearSelectedImage();
         return true;
       } catch {
         loading.remove();
-        if (await continueWithTypedProblem(hint, "???????????????????????????")) {
+        if (await continueWithTypedProblem(hint, "\u56fe\u7247\u8bc6\u522b\u670d\u52a1\u6682\u65f6\u4e0d\u53ef\u7528\uff0c\u5df2\u5148\u6839\u636e\u4f60\u8f93\u5165\u7684\u9898\u76ee\u6587\u5b57\u7ee7\u7eed\u3002")) {
           return true;
         }
-        addMessage("?????????????????????????", "error");
+        addMessage("\u56fe\u7247\u8bc6\u522b\u670d\u52a1\u6682\u65f6\u4e0d\u53ef\u7528\u3002\u4f60\u53ef\u4ee5\u5148\u624b\u52a8\u8f93\u5165\u9898\u76ee\u6587\u5b57\u3002", "error");
         return false;
       } finally {
         isRecognizingImage = false;
