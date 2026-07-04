@@ -5,7 +5,7 @@ const crypto = require("crypto");
 
 const PORT = Number(process.env.PORT || 8787);
 const ROOT = __dirname;
-const APP_VERSION = "sde-knowledge-20260703-xunfei-image-variants";
+const APP_VERSION = "sde-knowledge-20260704-qwen-openai-fallback";
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || "";
 const DEEPSEEK_BASE_URL = (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com").replace(/\/$/, "");
 const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || "deepseek-v4-pro";
@@ -23,18 +23,17 @@ const OPENAI_VISION_TIMEOUT_MS = Number(process.env.OPENAI_VISION_TIMEOUT_MS || 
 const OPENAI_DIAGRAM_MODEL = process.env.OPENAI_DIAGRAM_MODEL || OPENAI_VISION_MODEL;
 const OPENAI_DIAGRAM_TIMEOUT_MS = Number(process.env.OPENAI_DIAGRAM_TIMEOUT_MS || 12000);
 const VISION_API_KEY = process.env.VISION_API_KEY || "";
-const RAW_VISION_PROVIDER = (process.env.VISION_PROVIDER || "xunfei").toLowerCase();
-const VISION_FALLBACK_ENABLED = String(process.env.VISION_FALLBACK_ENABLED || "false").toLowerCase() === "true";
+const RAW_VISION_PROVIDER = (process.env.VISION_PROVIDER || "qwen").toLowerCase();
+const VISION_FALLBACK_ENABLED = String(process.env.VISION_FALLBACK_ENABLED || "true").toLowerCase() === "true";
 const VISION_PROVIDER = RAW_VISION_PROVIDER
   .replace("-only", "")
-  .replace("spark", "xunfei")
-  .replace("xfyun", "xunfei")
-  .replace("iflytek", "xunfei");
-const XUNFEI_API_PASSWORD = process.env.XUNFEI_API_PASSWORD || process.env.SPARK_API_PASSWORD || process.env.XUNFEI_API_KEY || process.env.SPARK_API_KEY || process.env.XFYUN_API_KEY || (VISION_PROVIDER === "xunfei" ? VISION_API_KEY : "");
-const XUNFEI_BASE_URL = (process.env.XUNFEI_BASE_URL || process.env.SPARK_BASE_URL || "https://spark-api-open.xf-yun.com/x2/chat/completions").replace(/\/$/, "");
-const XUNFEI_VISION_MODEL = process.env.XUNFEI_VISION_MODEL || process.env.SPARK_VISION_MODEL || process.env.SPARK_MODEL || "x2-vl";
-const XUNFEI_REQUEST_MODEL = process.env.XUNFEI_REQUEST_MODEL || process.env.SPARK_REQUEST_MODEL || "spark-x";
-const XUNFEI_VISION_TIMEOUT_MS = Number(process.env.XUNFEI_VISION_TIMEOUT_MS || process.env.SPARK_VISION_TIMEOUT_MS || 15000);
+  .replace("qianwen", "qwen")
+  .replace("tongyi", "qwen")
+  .replace("dashscope", "qwen");
+const QWEN_API_KEY = process.env.QWEN_API_KEY || process.env.DASHSCOPE_API_KEY || process.env.BAILIAN_API_KEY || (VISION_PROVIDER === "qwen" ? VISION_API_KEY : "");
+const QWEN_BASE_URL = (process.env.QWEN_BASE_URL || process.env.DASHSCOPE_BASE_URL || "https://dashscope.aliyuncs.com/compatible-mode/v1").replace(/\/$/, "");
+const QWEN_VISION_MODEL = process.env.QWEN_VISION_MODEL || process.env.QWEN_MODEL || "qwen3.7-plus";
+const QWEN_VISION_TIMEOUT_MS = Number(process.env.QWEN_VISION_TIMEOUT_MS || process.env.DASHSCOPE_VISION_TIMEOUT_MS || 15000);
 const VISION_BASE_URL = (process.env.VISION_BASE_URL || "https://open.bigmodel.cn/api/paas/v4").replace(/\/$/, "");
 const ZHIPU_VISION_API_KEY = process.env.ZHIPU_API_KEY || (VISION_PROVIDER === "zhipu" ? VISION_API_KEY : "");
 const VISION_MODEL = process.env.VISION_MODEL || "glm-4v-plus-0111";
@@ -2302,17 +2301,15 @@ async function callDeepSeek(messages, profile) {
 }
 
 function visionProviderConfig(provider) {
-  if (provider === "xunfei") {
+  if (provider === "qwen") {
     return {
       provider,
-      apiKey: XUNFEI_API_PASSWORD,
-      baseUrl: XUNFEI_BASE_URL,
-      model: XUNFEI_VISION_MODEL,
-      requestModel: XUNFEI_REQUEST_MODEL,
+      apiKey: QWEN_API_KEY,
+      baseUrl: QWEN_BASE_URL,
+      model: QWEN_VISION_MODEL,
       temperature: 0,
-      timeoutMs: XUNFEI_VISION_TIMEOUT_MS,
+      timeoutMs: QWEN_VISION_TIMEOUT_MS,
       useBareBase64: false,
-      preferJpgMime: true,
       endpoint: "chat"
     };
   }
@@ -2380,7 +2377,7 @@ function extractOpenAIResponseText(data) {
 }
 
 function visionProviderName(provider) {
-  if (provider === "xunfei") return "讯飞星火 X2-VL";
+  if (provider === "qwen") return "Qwen 3.7-plus";
   if (provider === "openai") return "OpenAI";
   if (provider === "kimi") return "Kimi";
   return "智谱";
@@ -2422,15 +2419,11 @@ function normalizeVisionImage(image, config) {
   return value;
 }
 
-function bareImageBase64(image) {
-  return String(image || "").replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/, "");
-}
-
 async function callVisionWithProvider(image, provider, hint = "") {
   const config = visionProviderConfig(provider);
   if (!config.apiKey) {
-    throw new Error(provider === "xunfei"
-      ? "还没有配置 XUNFEI_API_PASSWORD。注意：HTTP接口要填讯飞控制台的 API Password，不是 WebSocket 区域的 APIKey/APISecret。"
+    throw new Error(provider === "qwen"
+      ? "还没有配置 QWEN_API_KEY 或 DASHSCOPE_API_KEY。请在 Render 环境变量里填写阿里云百炼/千问的 API Key。"
       : provider === "openai"
         ? "还没有配置 OPENAI_API_KEY"
         : provider === "kimi"
@@ -2474,34 +2467,18 @@ async function callVisionWithProvider(image, provider, hint = "") {
       });
     } else {
       const promptText = buildVisionPrompt(hintPrompt);
-      const bareImage = bareImageBase64(image);
-      const messageVariants = provider === "xunfei"
-        ? [
-            [
-              { role: "system", content: buildVisionSystemPrompt() },
-              { role: "user", content: [{ type: "text", text: promptText }, { type: "image_url", image_url: { url: imageForProvider } }] }
-            ],
-            [
-              { role: "system", content: buildVisionSystemPrompt() },
-              { role: "user", content: [{ type: "text", text: promptText }, { type: "image_url", image_url: { url: bareImage } }] }
-            ],
-            [
-              { role: "system", content: buildVisionSystemPrompt() },
-              { role: "user", content: [{ type: "text", text: promptText }, { type: "image", image: bareImage }] }
+      const messageVariants = [
+        [
+          { role: "system", content: buildVisionSystemPrompt() },
+          {
+            role: "user",
+            content: [
+              { type: "text", text: promptText },
+              { type: "image_url", image_url: { url: imageForProvider } }
             ]
-          ]
-        : [
-            [
-              { role: "system", content: buildVisionSystemPrompt() },
-              {
-                role: "user",
-                content: [
-                  { type: "text", text: promptText },
-                  { type: "image_url", image_url: { url: imageForProvider } }
-                ]
-              }
-            ]
-          ];
+          }
+        ]
+      ];
 
       for (let i = 0; i < messageVariants.length; i += 1) {
         response = await fetch(chatCompletionsUrl(config.baseUrl), {
@@ -2520,7 +2497,7 @@ async function callVisionWithProvider(image, provider, hint = "") {
         });
         responseData = await response.json().catch(() => ({}));
         const apiMessage = responseData.error?.message || responseData.message || "";
-        if (response.ok || !(provider === "xunfei" && /image type not support/i.test(apiMessage)) || i === messageVariants.length - 1) {
+        if (response.ok || i === messageVariants.length - 1) {
           break;
         }
       }
@@ -2537,12 +2514,6 @@ async function callVisionWithProvider(image, provider, hint = "") {
   const data = responseData || await response.json().catch(() => ({}));
   if (!response.ok) {
     const apiMessage = data.error?.message || data.message || `图片识别 API 错误：${response.status}`;
-    if (provider === "xunfei" && /invalid param model/i.test(apiMessage)) {
-      throw new Error(`讯飞 X2-VL 接口拒绝当前 model 参数：${config.requestModel || config.model || "空"}。请在 Render 环境变量里把 XUNFEI_REQUEST_MODEL 改成讯飞文档要求的模型参数名。`);
-    }
-    if (provider === "xunfei" && /image type not support/i.test(apiMessage)) {
-      throw new Error("讯飞 X2-VL 不接受当前图片格式。系统已改为 jpg 格式发送；如果仍出现，请换一张更清晰的 jpg/png 题图，或裁掉微信/浏览器边框后再上传。");
-    }
     throw new Error(apiMessage);
   }
   const text = config.endpoint === "responses" ? extractOpenAIResponseText(data) : extractVisionText(data);
@@ -2551,13 +2522,11 @@ async function callVisionWithProvider(image, provider, hint = "") {
 }
 
 async function callVision(image, hint = "") {
-  const fallbackProviders = VISION_PROVIDER === "xunfei"
-    ? ["xunfei", ...(OPENAI_API_KEY ? ["openai"] : []), ...(KIMI_API_KEY ? ["kimi"] : []), ...(ZHIPU_VISION_API_KEY ? ["zhipu"] : [])]
+  const fallbackProviders = VISION_PROVIDER === "qwen"
+    ? ["qwen", ...(OPENAI_API_KEY ? ["openai"] : [])]
     : VISION_PROVIDER === "openai"
-      ? ["openai", ...(XUNFEI_API_PASSWORD ? ["xunfei"] : []), ...(KIMI_API_KEY ? ["kimi"] : []), ...(ZHIPU_VISION_API_KEY ? ["zhipu"] : [])]
-      : VISION_PROVIDER === "kimi"
-        ? ["kimi", ...(XUNFEI_API_PASSWORD ? ["xunfei"] : []), ...(OPENAI_API_KEY ? ["openai"] : []), ...(ZHIPU_VISION_API_KEY ? ["zhipu"] : [])]
-        : ["zhipu", ...(XUNFEI_API_PASSWORD ? ["xunfei"] : []), ...(OPENAI_API_KEY ? ["openai"] : [])];
+      ? ["openai"]
+      : ["qwen", ...(OPENAI_API_KEY ? ["openai"] : [])];
   const providers = VISION_FALLBACK_ENABLED ? fallbackProviders : [VISION_PROVIDER];
   let lastError = null;
 
@@ -2571,7 +2540,7 @@ async function callVision(image, hint = "") {
 
   const message = lastError?.message || "";
   if (/结果为空/.test(message)) {
-    throw new Error("图片识别结果为空。请换一张更清晰的图片，或补充输入题目文字；如果使用讯飞星火 X2-VL，请检查 XUNFEI_API_PASSWORD、XUNFEI_VISION_MODEL 和账号权限。");
+    throw new Error("图片识别结果为空。请换一张更清晰的图片，或补充输入题目文字；如果使用千问，请检查 QWEN_API_KEY、QWEN_VISION_MODEL 和账号权限。");
   }
   throw new Error(message || "图片识别失败");
 }
@@ -3313,11 +3282,10 @@ const server = http.createServer((req, res) => {
       visionProvider: VISION_PROVIDER,
       rawVisionProvider: RAW_VISION_PROVIDER,
       visionFallbackEnabled: VISION_FALLBACK_ENABLED,
-      xunfeiConfigured: Boolean(XUNFEI_API_PASSWORD),
-      xunfeiVisionModel: XUNFEI_VISION_MODEL,
-      xunfeiRequestModel: XUNFEI_REQUEST_MODEL,
-      xunfeiOmitModel: false,
-      xunfeiBaseUrl: XUNFEI_BASE_URL,
+      qwenConfigured: Boolean(QWEN_API_KEY),
+      qwenVisionModel: QWEN_VISION_MODEL,
+      qwenBaseUrl: QWEN_BASE_URL,
+      openaiConfigured: Boolean(OPENAI_API_KEY),
       openaiVisionModel: OPENAI_VISION_MODEL,
       openaiDiagramModel: OPENAI_DIAGRAM_MODEL
     });
