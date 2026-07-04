@@ -870,11 +870,20 @@
       };
     }
 
+    function hasPendingImage() {
+      return Boolean(
+        selectedImageData
+        || previewImage?.src?.startsWith("data:image/")
+        || imagePreview?.classList?.contains("show")
+      );
+    }
+
     function updateSendButtonMode() {
       if (!sendButton) return;
       sendButton.disabled = isRecognizingImage;
-      sendButton.textContent = isRecognizingImage ? "\u8bc6\u522b\u4e2d..." : (selectedImageData ? "\u8bc6\u522b\u5e76\u63d0\u95ee" : "\u53d1\u9001");
-      sendButton.title = selectedImageData ? "\u628a\u9898\u56fe\u548c\u8f93\u5165\u6846\u91cc\u7684\u8865\u5145\u8bf4\u660e\u4e00\u8d77\u8bc6\u522b" : "\u53d1\u9001\u6587\u5b57";
+      const pendingImage = hasPendingImage();
+      sendButton.textContent = isRecognizingImage ? "\u8bc6\u522b\u4e2d..." : (pendingImage ? "\u8bc6\u522b\u5e76\u63d0\u95ee" : "\u53d1\u9001");
+      sendButton.title = pendingImage ? "\u628a\u9898\u56fe\u548c\u8f93\u5165\u6846\u91cc\u7684\u8865\u5145\u8bf4\u660e\u4e00\u8d77\u8bc6\u522b" : "\u53d1\u9001\u6587\u5b57";
     }
 
     function setupPwaInstall() {
@@ -2451,8 +2460,12 @@
 
     async function recognizeSelectedImage() {
       if (isRecognizingImage) return false;
+      if (!selectedImageData && previewImage?.src?.startsWith("data:image/")) {
+        selectedImageData = previewImage.src;
+      }
       if (!selectedImageData) {
         addMessage("\u8bf7\u5148\u4e0a\u4f20\u4e00\u5f20\u9898\u76ee\u56fe\u7247\u3002", "error");
+        updateSendButtonMode();
         return false;
       }
       isRecognizingImage = true;
@@ -2514,7 +2527,7 @@
       selectedImageData = await fileToDataUrl(file);
       previewImage.src = selectedImageData;
       imagePreview.classList.add("show");
-      document.querySelector("#previewText").textContent = `已${source}题图：补充完后点右下角“识别并提问”`;
+      document.querySelector("#previewText").textContent = `\u5df2${source}\u9898\u56fe\uff1a\u53ef\u5148\u8865\u5145\u8bf4\u660e\uff0c\u518d\u70b9\u53f3\u4e0b\u89d2\u201c\u8bc6\u522b\u5e76\u63d0\u95ee\u201d\u3002`;
       updateSendButtonMode();
       return true;
     }
@@ -2667,7 +2680,7 @@
     });
 
     sendButton.addEventListener("click", () => {
-      if (selectedImageData) {
+      if (hasPendingImage()) {
         recognizeSelectedImage();
         return;
       }
@@ -2683,7 +2696,7 @@
     document.querySelector("#question").addEventListener("keydown", event => {
       if (event.key !== "Enter" || event.shiftKey || event.isComposing) return;
       event.preventDefault();
-      if (selectedImageData) {
+      if (hasPendingImage()) {
         recognizeSelectedImage();
         return;
       }
