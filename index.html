@@ -358,11 +358,33 @@
     }
     .composer {
       border-top: 1px solid var(--line);
-      padding: 12px;
+      padding: 12px 14px;
       display: grid;
-      grid-template-columns: auto 1fr auto auto;
-      gap: 10px;
-      align-items: end;
+      grid-template-columns: auto minmax(0, 1fr) auto auto auto;
+      gap: 8px;
+      align-items: center;
+      margin: 0 10px 10px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: #fff;
+      box-shadow: 0 8px 22px rgba(15, 23, 42, .08);
+    }
+    .composer textarea {
+      min-height: 34px;
+      max-height: 110px;
+      padding: 5px 4px;
+      border: 0;
+      border-radius: 0;
+      resize: none;
+      line-height: 1.45;
+      background: transparent;
+      overflow-y: auto;
+    }
+    .composer textarea::placeholder {
+      color: #8a8f98;
+    }
+    .composer .btn {
+      border-radius: 999px;
     }
     .voice-btn.listening {
       border-color: #f97316;
@@ -391,13 +413,62 @@
       overflow: hidden;
       display: inline-grid;
       place-items: center;
-      min-height: 44px;
+      width: 38px;
+      height: 38px;
+      min-height: 38px;
+      padding: 0;
+      border: 0;
+      background: transparent;
+      color: #111827;
+      font-size: 28px;
+      line-height: 1;
     }
     .file-btn input {
       position: absolute;
       inset: 0;
       opacity: 0;
       cursor: pointer;
+    }
+    .composer-chip {
+      border: 0;
+      background: transparent;
+      color: var(--muted);
+      padding: 7px 6px;
+      white-space: nowrap;
+      cursor: default;
+    }
+    .voice-btn {
+      width: 38px;
+      height: 38px;
+      min-height: 38px;
+      padding: 0;
+      display: inline-grid;
+      place-items: center;
+      border: 0;
+      background: transparent;
+      color: #111827;
+      font-size: 21px;
+    }
+    #send {
+      width: 42px;
+      height: 42px;
+      min-height: 42px;
+      padding: 0;
+      display: inline-grid;
+      place-items: center;
+      border-radius: 50%;
+      font-size: 22px;
+      line-height: 1;
+      box-shadow: 0 6px 16px rgba(15, 118, 110, .22);
+      white-space: nowrap;
+    }
+    #send.image-mode {
+      width: auto;
+      min-width: 64px;
+      padding: 0 14px;
+      border-radius: 999px;
+      font-size: 14px;
+      font-weight: 800;
     }
     .preview {
       border-top: 1px solid var(--line);
@@ -716,7 +787,11 @@
         min-height: calc(100dvh - 112px);
       }
       .visual { min-height: 360px; }
-      .composer { grid-template-columns: 1fr; }
+      .composer {
+        grid-template-columns: auto minmax(0, 1fr) auto auto auto;
+        margin: 0 4px 8px;
+        padding: 9px 10px;
+      }
       .msg { max-width: 100%; }
     }
   </style>
@@ -771,7 +846,7 @@
         <div class="body">
           <p class="sidebar-intro">先确认学习画像，再到学习中心选择今天要做什么。</p>
 
-          <details class="drawer" id="learningSettingsDrawer" open>
+          <details class="drawer" id="learningSettingsDrawer">
             <summary>学习设置</summary>
             <div class="drawer-body">
               <label>学习阶段</label>
@@ -890,19 +965,20 @@
               <li><span>第1步</span><div>可选：先在下面输入框补充说明，例如“只做第3小问”“图中AB是切线”。</div></li>
               <li><span>第2步</span><div>点右下角按钮，系统会把题图和补充说明一起识别并开始提问。</div></li>
             </ol>
-            <div class="image-note">现在右下角按钮会变成“识别并提问”，补充完直接点它。</div>
+            <div class="image-note">现在右下角按钮会变成“识别”，补充完直接点它。</div>
             <div class="image-actions">
               <button class="btn" id="clearImage">清除题图</button>
             </div>
           </div>
         </div>
         <div class="composer">
-          <label class="btn file-btn">上传题图
+          <label class="btn file-btn" title="上传题图">+
             <input id="imageInput" type="file" accept="image/*" />
           </label>
-          <textarea id="question" placeholder="输入题目文字；如果已上传题图，这里只写补充说明，例如：只做第3小问、图中AB是切线。"></textarea>
-          <button class="btn voice-btn" id="voiceInput">语音输入</button>
-          <button class="btn primary" id="send">发送</button>
+          <textarea id="question" placeholder="问问数学智能体，或粘贴题图"></textarea>
+          <button class="composer-chip" type="button" tabindex="-1">高⌄</button>
+          <button class="btn voice-btn" id="voiceInput" title="语音输入">🎙</button>
+          <button class="btn primary" id="send" title="发送">↑</button>
         </div>
       </section>
 
@@ -972,7 +1048,8 @@
       if (!sendButton) return;
       sendButton.disabled = isRecognizingImage;
       const pendingImage = hasPendingImage();
-      sendButton.textContent = isRecognizingImage ? "\u8bc6\u522b\u4e2d..." : (pendingImage ? "\u8bc6\u522b\u5e76\u63d0\u95ee" : "\u53d1\u9001");
+      sendButton.classList.toggle("image-mode", pendingImage || isRecognizingImage);
+      sendButton.textContent = isRecognizingImage ? "\u8bc6\u522b\u4e2d" : (pendingImage ? "\u8bc6\u522b" : "\u2191");
       sendButton.title = pendingImage ? "\u628a\u9898\u56fe\u548c\u8f93\u5165\u6846\u91cc\u7684\u8865\u5145\u8bf4\u660e\u4e00\u8d77\u8bc6\u522b" : "\u53d1\u9001\u6587\u5b57";
     }
 
@@ -1208,7 +1285,7 @@
     function setListening(active) {
       listening = active;
       voiceButton.classList.toggle("listening", active);
-      voiceButton.textContent = active ? "停止录音" : "语音输入";
+      voiceButton.textContent = active ? "\u25a0" : "\ud83c\udf99";
     }
 
     function appendQuestionText(text) {
@@ -1414,7 +1491,7 @@
       } finally {
         voiceBaseText = "";
         voiceLiveText = "";
-        document.querySelector("#question").placeholder = "输入题目文字；如果已上传题图，这里只写补充说明，例如：只做第3小问、图中AB是切线。";
+        document.querySelector("#question").placeholder = "问问数学智能体，或粘贴题图";
       }
     }
 
@@ -1468,7 +1545,7 @@
       };
       recognition.onerror = event => {
         setListening(false);
-        document.querySelector("#question").placeholder = "输入题目文字；如果已上传题图，这里只写补充说明，例如：只做第3小问、图中AB是切线。";
+        document.querySelector("#question").placeholder = "问问数学智能体，或粘贴题图";
         if (voiceRecording) {
           stopCloudVoiceInput();
         } else {
@@ -1486,7 +1563,7 @@
         if (text) setQuestionDraft(text);
         voiceBaseText = "";
         voiceLiveText = "";
-        document.querySelector("#question").placeholder = "输入题目文字；如果已上传题图，这里只写补充说明，例如：只做第3小问、图中AB是切线。";
+        document.querySelector("#question").placeholder = "问问数学智能体，或粘贴题图";
       };
       try {
         recognition.start();
