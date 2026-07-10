@@ -173,6 +173,27 @@
     .drawer-body {
       padding: 12px;
     }
+    .plan-confirm {
+      display: none;
+      border: 1px solid #b9e3dc;
+      border-radius: 8px;
+      background: #eef8f6;
+      padding: 10px;
+      margin-top: 4px;
+      gap: 8px;
+    }
+    .plan-confirm.show {
+      display: grid;
+    }
+    .plan-confirm p {
+      margin: 0;
+      color: #344054;
+      font-size: 13px;
+      line-height: 1.45;
+    }
+    .plan-confirm .btn {
+      width: 100%;
+    }
     label {
       display: block;
       margin-bottom: 6px;
@@ -742,7 +763,7 @@
     </section>
 
     <main id="mainApp" class="hidden">
-            <aside class="panel">
+      <aside class="panel">
         <div class="head"><h2>学习中心</h2></div>
         <div class="body">
           <p class="sidebar-intro">先选一个入口开始。更细的年级、目标和模式，放在下面的学习设置里。</p>
@@ -771,7 +792,7 @@
             </button>
           </div>
 
-          <details class="drawer">
+          <details class="drawer" id="learningSettingsDrawer">
             <summary>学习设置</summary>
             <div class="drawer-body">
               <label>学习阶段</label>
@@ -822,6 +843,10 @@
                   <option>一学期</option>
                   <option>长期路线</option>
                 </select>
+              </div>
+              <div class="plan-confirm" id="systemPlanConfirm">
+                <p>请先确认上面的学习阶段、目标、当前状态和规划周期，再生成系统学习规划。</p>
+                <button class="btn primary" id="confirmSystemPlan">确认并生成规划</button>
               </div>
             </div>
           </details>
@@ -2772,10 +2797,26 @@
       send("请根据我的阶段、目标和当前状态，安排今天的数学学习。", { intent: "daily_plan" });
     });
 
-    document.querySelector("#systemPlan").addEventListener("click", () => {
+    function openSystemPlanConfirm() {
+      const drawer = document.querySelector("#learningSettingsDrawer");
+      const confirmBox = document.querySelector("#systemPlanConfirm");
+      drawer.open = true;
+      confirmBox.classList.add("show");
+      drawer.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      document.querySelector("#planSpan").focus();
+    }
+
+    function submitSystemPlan() {
+      document.querySelector("#systemPlanConfirm").classList.remove("show");
       resetGuidedLearningContext();
       send("请根据我的阶段、目标、当前状态和规划周期，制定一份系统化数学学习规划，包含学习路线、知识点顺序、练习安排和家长观察建议。", { intent: "system_plan" });
+    }
+
+    document.querySelector("#systemPlan").addEventListener("click", () => {
+      openSystemPlanConfirm();
     });
+
+    document.querySelector("#confirmSystemPlan").addEventListener("click", submitSystemPlan);
 
     document.querySelector("#startLesson").addEventListener("click", () => {
       resetGuidedLearningContext();
