@@ -140,6 +140,9 @@
       gap: 9px;
       margin-bottom: 12px;
     }
+    .drawer-body .quick-actions {
+      margin-bottom: 0;
+    }
     .drawer {
       border: 1px solid var(--line);
       border-radius: 8px;
@@ -764,35 +767,11 @@
 
     <main id="mainApp" class="hidden">
       <aside class="panel">
-        <div class="head"><h2>学习中心</h2></div>
+        <div class="head"><h2>学习设置</h2></div>
         <div class="body">
-          <p class="sidebar-intro">先选一个入口开始。更细的年级、目标和模式，放在下面的学习设置里。</p>
+          <p class="sidebar-intro">先确认学习画像，再到学习中心选择今天要做什么。</p>
 
-          <div class="quick-actions" aria-label="主要学习入口">
-            <button class="btn primary action-btn" id="plan">
-              <span class="action-badge">今天</span>
-              <span>
-                <span class="action-main">安排今天的学习</span>
-                <span class="action-sub">生成一节课和练习</span>
-              </span>
-            </button>
-            <button class="btn action-btn" id="systemPlan">
-              <span class="action-badge">路线</span>
-              <span>
-                <span class="action-main">制定系统学习规划</span>
-                <span class="action-sub">生成长期学习路线</span>
-              </span>
-            </button>
-            <button class="btn action-btn" id="startLesson">
-              <span class="action-badge">小课</span>
-              <span>
-                <span class="action-main">开始知识点学习</span>
-                <span class="action-sub">进入一个知识点讲解与练习</span>
-              </span>
-            </button>
-          </div>
-
-          <details class="drawer" id="learningSettingsDrawer">
+          <details class="drawer" id="learningSettingsDrawer" open>
             <summary>学习设置</summary>
             <div class="drawer-body">
               <label>学习阶段</label>
@@ -847,6 +826,35 @@
               <div class="plan-confirm" id="systemPlanConfirm">
                 <p>请先确认上面的学习阶段、目标、当前状态和规划周期，再生成系统学习规划。</p>
                 <button class="btn primary" id="confirmSystemPlan">确认并生成规划</button>
+              </div>
+            </div>
+          </details>
+
+          <details class="drawer" id="learningCenterDrawer">
+            <summary>学习中心</summary>
+            <div class="drawer-body">
+              <div class="quick-actions" aria-label="主要学习入口">
+                <button class="btn primary action-btn" id="plan">
+                  <span class="action-badge">今天</span>
+                  <span>
+                    <span class="action-main">安排今天的学习</span>
+                    <span class="action-sub">生成一节课和练习</span>
+                  </span>
+                </button>
+                <button class="btn action-btn" id="systemPlan">
+                  <span class="action-badge">路线</span>
+                  <span>
+                    <span class="action-main">制定系统学习规划</span>
+                    <span class="action-sub">确认设置后生成长期路线</span>
+                  </span>
+                </button>
+                <button class="btn action-btn" id="startLesson">
+                  <span class="action-badge">小课</span>
+                  <span>
+                    <span class="action-main">开始知识点学习</span>
+                    <span class="action-sub">进入一个知识点讲解与练习</span>
+                  </span>
+                </button>
               </div>
             </div>
           </details>
