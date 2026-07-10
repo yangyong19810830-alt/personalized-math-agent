@@ -989,7 +989,7 @@
           <label class="btn file-btn" title="上传题图"><span class="plus-icon">+</span>
             <input id="imageInput" type="file" accept="image/*" />
           </label>
-          <textarea id="question" placeholder="问问数学智能体，或粘贴题图"></textarea>
+          <textarea id="question" placeholder="问问数学智能体"></textarea>
           <button class="btn voice-btn" id="voiceInput" title="语音输入" aria-label="语音输入">
             <svg width="18" height="22" viewBox="0 0 18 22" aria-hidden="true">
               <path d="M9 2.5a3 3 0 0 1 3 3v5a3 3 0 0 1-6 0v-5a3 3 0 0 1 3-3Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
@@ -1518,7 +1518,7 @@
       } finally {
         voiceBaseText = "";
         voiceLiveText = "";
-        document.querySelector("#question").placeholder = "问问数学智能体，或粘贴题图";
+        document.querySelector("#question").placeholder = "问问数学智能体";
       }
     }
 
@@ -1572,7 +1572,7 @@
       };
       recognition.onerror = event => {
         setListening(false);
-        document.querySelector("#question").placeholder = "问问数学智能体，或粘贴题图";
+        document.querySelector("#question").placeholder = "问问数学智能体";
         if (voiceRecording) {
           stopCloudVoiceInput();
         } else {
@@ -1590,7 +1590,7 @@
         if (text) setQuestionDraft(text);
         voiceBaseText = "";
         voiceLiveText = "";
-        document.querySelector("#question").placeholder = "问问数学智能体，或粘贴题图";
+        document.querySelector("#question").placeholder = "问问数学智能体";
       };
       try {
         recognition.start();
