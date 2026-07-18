@@ -2031,35 +2031,40 @@ function nextHeuristicQuestion(messages) {
 function isLikelyIncomplete(text) {
   const value = String(text || "").trim();
   if (!value) return true;
+  // A complete explanation can be long and may finish without a punctuation mark.
+  // Do not mistake it for a failed response and replace it with a template.
+  if (value.length >= 180) return false;
   if (/[。？！.!?]$/.test(value)) return false;
   if (/[，、：；,;]$/.test(value)) return true;
   if (/(每|把|用|再|先|请|要|可以|应该|因为|所以|那么|如果|这个|那个|第)$/.test(value)) return true;
-  return value.length > 80;
+  return value.length < 30;
 }
 
 function trimHeuristicReply(text, messages, profile = {}) {
   const value = String(text || "").trim();
   if (isLearningPlanRequest(messages, profile)) {
     if (!value) return fallbackLearningPlanReply(messages, profile);
-    return value.length > 2200 ? `${value.slice(0, 2200)}。` : value;
+    return value.length > 6000 ? `${value.slice(0, 6000)}。` : value;
   }
   if (isKnowledgeAnalogyRequest(messages) || isAnalogySceneChoice(messages)) {
     if (!value) return fallbackKnowledgeAnalogyReply(messages);
-    return value.length > 1200 ? `${value.slice(0, 1200)}。` : value;
+    return value.length > 5000 ? `${value.slice(0, 5000)}。` : value;
   }
   if (isDirectUserQuestion(messages)) {
     if (!value) return directQuestionFallback(messages);
-    return value.length > 1200 ? `${value.slice(0, 1200)}。` : value;
+    return value.length > 5000 ? `${value.slice(0, 5000)}。` : value;
   }
   if (profile?.mode === "讲解模式") {
-    if (isLikelyIncomplete(value)) return fallbackTeachingReply(messages, profile);
+    if (!value) return fallbackTeachingReply(messages, profile);
     return value;
   }
-  if (isLikelyIncomplete(value)) return nextHeuristicQuestion(messages);
+  if (!value) return nextHeuristicQuestion(messages);
   const hardRevealPattern = /答案是|最终答案|所以答案|最后答案|直接得到答案|把答案算出来|完整解法如下/;
   const routeRevealPattern = /接下来.*(除以|相除|列方程求出|代入求出|直接求出)|再用.*(除以|相除).*就|这样就知道|即可得到/;
   if (!hardRevealPattern.test(value) && !routeRevealPattern.test(value) && value.length <= 420) return value;
-  return nextHeuristicQuestion(messages);
+  // Keep a real model response. The prompt governs how much to reveal;
+  // replacing it here was the source of unrelated template answers.
+  return value;
 }
 
 function isLengthCutoff(result) {

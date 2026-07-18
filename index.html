@@ -2735,9 +2735,27 @@
       };
     }
 
+    function looksLikeFallbackTemplate(text) {
+      const value = String(text || "");
+      return /我们先别在同一个地方绕了|你现在选一个入口|请把刚才得到的量放回题目里/.test(value)
+        || (/A\.|B\.|C\.|D\./.test(value) && /对象|单位|标准|关系|入口/.test(value));
+    }
+
+    function chooseFinalAnswer(answer, streamedText = "") {
+      const finalText = String(answer || "").trim();
+      const streamed = String(streamedText || "").trim();
+      if (!streamed) return finalText;
+      if (!finalText) return streamed;
+      // The streamed text is what the model actually produced. Preserve it
+      // when a late fallback/template would otherwise overwrite that answer.
+      if (streamed.length >= 60 && looksLikeFallbackTemplate(finalText)) return streamed;
+      if (streamed.length >= 120 && finalText.length < streamed.length * 0.55) return streamed;
+      return finalText;
+    }
+
     async function finishAssistantMessage(data, bubble, streamedText = "") {
       setQuota(data);
-      const finalAnswer = data.answer || streamedText;
+      const finalAnswer = chooseFinalAnswer(data.answer, streamedText);
       bubble.textContent = normalizeMathText(finalAnswer);
       appendAgentTools(bubble, finalAnswer);
       if (data.diagramAction === "show" || data.diagramAction === "update") {
