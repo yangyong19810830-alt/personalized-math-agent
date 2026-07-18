@@ -786,7 +786,7 @@ function normalizeDiagram(value) {
 
   return {
     title: String(diagram.title || "解题结构图").slice(0, 40),
-    demoType: /^(geometry|geometry-semantic|geometry-example-[a-z-]+|rectangle-measure|plane-shape|solid-shape|function-concept|sequence-concept|geometry-knowledge)$/.test(demoType) ? demoType : "",
+    demoType: /^(geometry|geometry-semantic|geometry-example-[a-z-]+|rectangle-measure|plane-shape|solid-shape|function-concept|sequence-concept|geometry-knowledge|interval-line|primary-olympiad)$/.test(demoType) ? demoType : "",
     figure: normalizeFigure(diagram.figure),
     nodes: cleanNodes,
     edges: cleanEdges
@@ -1186,9 +1186,61 @@ function fallbackKnowledgeAnalogyReply(messages) {
   return "你问的是这个知识该怎么用生活场景来理解。\n\n我先用一个最普通的场景来比方：先看场景里有哪些东西，再看它们之间保持什么关系，最后看我们要做什么操作。数学里的概念、公式或方法，也不是凭空来的，而是为了把这种稳定关系表达清楚。\n\n哪里像：生活场景帮助我们看见对象和关系。哪里不完全一样：数学会把生活里的细节压缩掉，只保留最稳定、最可迁移的关系。";
 }
 
+function isIntervalPlacementContext(text) {
+  const value = String(text || "");
+  const placement = /植树|种.*树|栽.*树|树苗|路灯|电线杆|站点|路桩|栏杆柱|摆花|插旗/;
+  const interval = /每隔|相隔|间隔|等距|每\s*\d+(?:\.\d+)?\s*(?:米|千米|厘米)/;
+  return placement.test(value) && interval.test(value);
+}
+
+function classifyPrimaryOlympiadContext(text) {
+  const value = String(text || "");
+  if (!value.trim()) return "";
+  if (isIntervalPlacementContext(value)) return "interval";
+  if (/三角形|四边形|梯形|平行四边形|菱形|正方形|长方形|圆|切线|弦|半径|直径|垂直|平行|全等|相似|△|∠|⊙|[A-Z]{2,3}/.test(value)
+    && /已知|证明|求|如图|面积|周长|角度|边长/.test(value)) return "";
+  if (/鸡兔同笼|头数.*脚数|头.*脚|两轮车.*三轮车|三轮车.*两轮车|龟鹤|总只数.*总腿数/.test(value)) return "two-category";
+  if (/答对.*得分|答错.*扣分|错中求解|全答对|得分.*题数/.test(value)) return "two-category";
+  if (/浓度|盐水|糖水|溶液|溶质|含盐率|含糖率|混合液/.test(value)) return "mixture";
+  if (/抽屉|鸽巢|至少有.*相同|保证.*至少|放入.*盒|分到.*箱/.test(value)) return "pigeonhole";
+  if (/容斥|至少一个|至少参加|两项都|既.*又|只参加|重复计算|韦恩图|集合/.test(value)) return "venn";
+  if (/平均|移多补少/.test(value)) return "average-bars";
+  if (/年龄|岁数|爸爸|妈妈|儿子|女儿|兄弟|姐妹/.test(value) && /岁|年龄|年后|年前|倍/.test(value)) return "age-bars";
+  if (/相遇|追及|相向|同向|速度|路程|行程|早到|晚到|顺流|逆流|流水|火车过桥/.test(value)) return "route-line";
+  if (/工程|工作效率|工作量|合做|合作|单独完成|修路|加工|每天完成|几天完成|水池|进水|出水|注水|放水|牛吃草|草场|草地.*牛/.test(value)) return "unit-work";
+  if (/周期|循环|重复排列|彩灯|按.*顺序|第\s*\d+\s*(?:个|项|盏|面|位|次)|星期几|余数对应/.test(value)) return "cycle-strip";
+  if (/盈亏|盈余|亏欠|每人分|每个分|多出|少了|还差|刚好分完|每.*多.*每.*少/.test(value)) return "distribution-balance";
+  if (/和差|和倍|差倍|两数.*和.*相差|总和.*相差|倍数关系|是.*的\s*\d+(?:\.\d+)?\s*倍|比.*多|比.*少/.test(value)) return "bar-model";
+  if (/等量代换|天平|砝码|归一问题|归总问题|单一量|单价.*总价|单产.*总产/.test(value)) return "bar-model";
+  if (/分数|几分之|\d+\s*\/\s*\d+|单位\s*1|单位一|比例|比是|按.*比|份数|占总数/.test(value)) return "fraction-bars";
+  if (/利润|成本|售价|定价|折扣|打折|涨价|降价|百分数/.test(value)) return "fraction-bars";
+  if (/排列|组合|搭配|有几种|多少种|路线选择|涂色|握手|比赛场次|选法/.test(value)) return "choice-tree";
+  if (/余数|除以.*余|整除|约数|因数|倍数|质数|合数|最大公因数|最小公倍数|奇数|偶数|尾数|数字和|数位|页码|数码|位数|数字出现/.test(value)) return "number-groups";
+  if (/逻辑推理|真假|谁说真话|谁说假话|对应关系|排序|名次|住第几|各住哪|分别是|根据条件.*判断|列表推理/.test(value)) return "logic-grid";
+  if (/数阵|幻方|方阵|数表|九宫格|填数|横竖斜/.test(value)) return "number-grid";
+  if (/还原问题|倒推|逆推|原来有|最后剩|连续操作|定义新运算|新运算|运算符号/.test(value)) return "reverse-chain";
+  return "";
+}
+
+function diagramProblemText(messages = []) {
+  const entries = messages
+    .map(message => ({ role: message.role, text: deepSeekMessageText(message).trim() }))
+    .filter(entry => entry.text);
+  if (!entries.length) return "";
+  for (let index = entries.length - 1; index >= 0; index -= 1) {
+    const entry = entries[index];
+    if (isIntervalPlacementContext(entry.text)
+      || (entry.role === "user" && (isNewProblemInput(entry.text) || entry.text.length >= 36))) {
+      return entries.slice(index).map(item => item.text).join("\n");
+    }
+  }
+  return entries.slice(-6).map(item => item.text).join("\n");
+}
+
 function shouldShowLocalDiagram(messages, profile = {}) {
   const text = latestUserText(messages);
   const recentText = historyText(messages, 4);
+  if (classifyPrimaryOlympiadContext(diagramProblemText(messages))) return true;
   if (profile.intent === "lesson_start") return true;
   if (/画图|结构图|图解|画出来|关系图|示意图|看图理解/.test(text)) return true;
   if (isKnowledgeVisualTopic(`${text}\n${recentText}`)) return true;
@@ -1204,7 +1256,9 @@ function isKnowledgeVisualTopic(text) {
 }
 
 function shouldPreferLocalDiagram(messages, profile = {}) {
-  const text = `${latestUserText(messages)}\n${historyText(messages, 4)}`;
+  const problemText = diagramProblemText(messages);
+  const text = `${problemText}\n${latestUserText(messages)}`;
+  if (classifyPrimaryOlympiadContext(problemText || latestUserText(messages))) return true;
   if (/长方形|正方形|矩形|梯形|平行四边形|菱形|多边形|正多边形|扇形|圆环|半圆|轴对称|对称轴|平移|旋转|放缩|圆柱|圆锥|正方体|长方体|立方体|球|周长|面积|函数|图像|坐标|自变量|因变量|定义域|值域|单调|奇偶/.test(text)) return true;
   if (/知识点|概念|学|学习|讲讲|解释|理解|类比|为什么|是什么|是啥|定义|性质|特点|示意图|图解/.test(text) && isKnowledgeVisualTopic(text)) return true;
   return false;
@@ -1212,7 +1266,7 @@ function shouldPreferLocalDiagram(messages, profile = {}) {
 
 function isGeometryExampleContext(text) {
   const value = String(text || "");
-  return /几何|图形|三角形|四边形|梯形|圆|线段|直线|射线|角度|平行|垂直|相似|全等|切线|弦|半径|直径|面积|体积|△|∠|⊙/.test(value)
+  return /几何|三角形|四边形|梯形|平行四边形|菱形|正方形|长方形|圆|角度|平行|垂直|相似|全等|切线|弦|半径|直径|△|∠|⊙|[A-Z]{2,3}/.test(value)
     && /例题|练习|题目|已知|证明|求|如图|若|设|问|推出|说明/.test(value);
 }
 
@@ -1640,9 +1694,196 @@ function buildShapeKnowledgeDiagram(context) {
   return null;
 }
 
+function buildIntervalPlacementDiagram(context) {
+  const value = String(context || "").replace(/\s+/g, " ");
+  if (!isIntervalPlacementContext(value)) return null;
+
+  const measurements = [...value.matchAll(/(\d+(?:\.\d+)?)\s*(千米|公里|厘米|米|km|cm|m)(?![\w])/gi)]
+    .map(match => ({ value: Number(match[1]), unit: match[2] }))
+    .filter(item => Number.isFinite(item.value) && item.value > 0);
+  const total = measurements[0]?.value || null;
+  const totalUnit = measurements[0]?.unit || "米";
+  const spacingItem = measurements.slice(1).find(item => !total || item.value < total) || measurements[1] || null;
+  const spacing = spacingItem?.value || null;
+  const exactSegments = total && spacing && total >= spacing && Number.isInteger(total / spacing)
+    ? total / spacing
+    : null;
+
+  const closedLoop = /环形|圆形|围成一圈|首尾相接/.test(value);
+  const excludeBoth = /两端(?:都)?不|两头(?:都)?不/.test(value);
+  const includeBoth = /两端(?:都)?(?:种|栽|有|放)|两头(?:都)?(?:种|栽|有|放)|起点和终点(?:都)?|首尾(?:都)?(?:种|栽|有|放)/.test(value);
+  const oneEnd = /只(?:种|栽|放)一端|一端(?:种|栽|放).*(?:另一端|另端)不|一头(?:种|栽|放).*(?:另一头|另头)不/.test(value);
+  let pointCount = null;
+  let endpointLabel = "端点条件需要核对";
+  if (exactSegments !== null) {
+    if (closedLoop || oneEnd) {
+      pointCount = exactSegments;
+      endpointLabel = closedLoop ? "首尾相接" : "只计一个端点";
+    } else if (excludeBoth) {
+      pointCount = Math.max(0, exactSegments - 1);
+      endpointLabel = "两端都不种";
+    } else if (includeBoth) {
+      pointCount = exactSegments + 1;
+      endpointLabel = "两端都种";
+    }
+  }
+
+  const visibleCount = exactSegments !== null ? Math.min(exactSegments + 1, 11) : 7;
+  const labels = Array.from({ length: visibleCount }, (_, index) => {
+    if (spacing && exactSegments !== null && exactSegments <= 10) return `${index * spacing}`;
+    return index === 0 ? "起点" : (index === visibleCount - 1 ? "终点" : "");
+  });
+  const lengthLabel = total ? `路长 ${total}${totalUnit}` : "道路总长";
+  const spacingLabel = spacing ? `每隔 ${spacing}${spacingItem?.unit || totalUnit}` : "相邻位置等距";
+  const intervalLabel = exactSegments !== null ? `间隔数 ${total}÷${spacing}=${exactSegments}` : "先求间隔数";
+  const resultLabel = pointCount !== null ? `位置数 ${pointCount}` : "位置数由端点条件决定";
+
+  return {
+    title: "等距种植线段示意图",
+    demoType: "interval-line",
+    figure: { kind: "interval-line", labels },
+    nodes: [
+      { id: "n1", label: lengthLabel, type: "given" },
+      { id: "n2", label: spacingLabel, type: "given" },
+      { id: "n3", label: intervalLabel, type: "relation" },
+      { id: "n4", label: endpointLabel, type: "check" },
+      { id: "n5", label: resultLabel, type: pointCount !== null ? "result" : "goal" }
+    ],
+    edges: [
+      { from: "n1", to: "n3", label: "总长÷间距" },
+      { from: "n2", to: "n3", label: "划分等长段" },
+      { from: "n3", to: "n4", label: "再看两端" },
+      { from: "n4", to: "n5", label: "确定位置数" }
+    ],
+    note: "线段被等距点分成若干段；间隔数和种植位置数是否相差 1，取决于两端是否都种。"
+  };
+}
+
+function buildPrimaryOlympiadDiagram(context) {
+  const value = String(context || "").replace(/\s+/g, " ");
+  const kind = classifyPrimaryOlympiadContext(value);
+  if (!kind || kind === "interval") return null;
+  const numbers = [...value.matchAll(/\d+(?:\.\d+)?/g)].map(match => match[0]).slice(0, 8);
+  const templates = {
+    "two-category": {
+      title: "鸡兔同笼类双对象模型",
+      labels: ["两类对象", "总数量", "总特征量", "单位差", "调整数量"],
+      note: "先固定对象总数，再用每类对象的单位贡献差调整；图中两类可以是鸡兔、两轮三轮车或其他双对象。"
+    },
+    mixture: {
+      title: "浓度混合模型",
+      labels: ["原溶液", "加入/取出", "溶质数量", "溶液总量", "新浓度"],
+      note: "浓度图同时盯住溶质和溶液总量；混合或取出时，两者的变化不能混为一谈。"
+    },
+    venn: {
+      title: "容斥集合示意图",
+      labels: ["集合 A", "集合 B", "重复部分", "至少一项", "总人数/总个数"],
+      note: "两个集合重叠处被计算了两次，所以合并时要把重复部分减去一次。"
+    },
+    pigeonhole: {
+      title: "抽屉分配示意图",
+      labels: ["待分对象", "抽屉数量", "先尽量平均", "剩余对象", "至少一个抽屉"],
+      note: "先平均放入每个抽屉，再看剩余对象落到哪里，从而得到至少有多少个。"
+    },
+    "average-bars": {
+      title: "平均数移多补少图",
+      labels: ["各个数量", "总量不变", "拉到同一高度", "平均水平", "反查总量"],
+      note: "平均数表示把总量重新均分后的同一高度，移动前后总量保持不变。"
+    },
+    "age-bars": {
+      title: "年龄差不变线段图",
+      labels: ["较小年龄", "年龄差", "较大年龄", "同时增减", "倍数关系"],
+      note: "两个人经过相同年数后年龄差不变，但倍数关系会发生变化。"
+    },
+    "route-line": {
+      title: "行程路线示意图",
+      labels: ["起点", "对象 A", "对象 B", "相遇/追及点", "路程=速度×时间"],
+      note: "把运动方向、共同时间和各自走过的路程放在同一条路线上，再建立相遇或追及关系。"
+    },
+    "unit-work": {
+      title: "工程总量与效率图",
+      labels: ["总工作量=1", "对象 A 效率", "对象 B 效率", "合做效率", "完成时间"],
+      note: "把整项工作看成 1，先求单位时间完成多少，再由总量和效率确定时间。"
+    },
+    "cycle-strip": {
+      title: "周期重复格示意图",
+      labels: ["最小重复组", "每组长度", "完整组", "余数位置", "目标项"],
+      note: "先圈出最小重复组，再用目标位置除以组长，余数决定它落在组内哪个位置。"
+    },
+    "distribution-balance": {
+      title: "盈亏分配对比图",
+      labels: ["对象总数", "方案一", "盈/亏一", "方案二", "盈亏总差"],
+      note: "比较两种分配方案：每份变化多少、总盈亏相差多少，两者对应同一批对象。"
+    },
+    "bar-model": {
+      title: "和差倍份数线段图",
+      labels: ["较小量", "相同份数", "相差部分", "较大量", "总和/目标量"],
+      note: "先把相同的一份对齐，再把多出的差或倍数部分单独标出来。"
+    },
+    "fraction-bars": {
+      title: "分数与比例份数图",
+      labels: ["整体单位", "平均分份", "已知份数", "对应数量", "目标份数"],
+      note: "先确定整体单位，再把整体等分；分数或比例表示其中占了几份。"
+    },
+    "choice-tree": {
+      title: "排列组合树状图",
+      labels: ["第一步选择", "第二步选择", "分支不重不漏", "完整路径", "方法总数"],
+      note: "每条从起点走到末端的完整路径代表一种方法，分层展开可避免重复和遗漏。"
+    },
+    "number-groups": {
+      title: "数论分组与余数图",
+      labels: ["待研究的数", "按除数分组", "完整组", "余数", "整除/周期性质"],
+      note: "把数写成若干完整组加余数，整除、奇偶、尾数和周期问题都可在分组中观察。"
+    },
+    "logic-grid": {
+      title: "逻辑对应排除表",
+      labels: ["对象", "可能选项", "确定关系", "排除矛盾", "唯一对应"],
+      note: "把对象和选项排成表格，逐条标记确定与排除，直到每行每列形成唯一对应。"
+    },
+    "number-grid": {
+      title: "数阵规律示意图",
+      labels: ["行规律", "列规律", "对角线", "公共格", "待填数字"],
+      note: "分别检查行、列和对角线的关系，公共格必须同时满足多个方向的条件。"
+    },
+    "reverse-chain": {
+      title: "还原问题逆推图",
+      labels: ["最后结果", "撤销最后操作", "逐步逆推", "核对顺序", "还原初始量"],
+      note: "从最后结果出发，按照相反顺序使用逆运算，一步一步还原到最初状态。"
+    }
+  };
+  const template = templates[kind];
+  if (!template) return null;
+  const nodes = template.labels.map((label, index) => ({
+    id: `n${index + 1}`,
+    label,
+    type: index < 2 ? "given" : (index === template.labels.length - 1 ? "goal" : "relation")
+  }));
+  const edges = nodes.slice(1).map((node, index) => ({
+    from: nodes[index].id,
+    to: node.id,
+    label: ["对应", "比较", "转化", "推出"][index] || "连接"
+  }));
+  return {
+    title: template.title,
+    demoType: "primary-olympiad",
+    figure: { kind, labels: numbers },
+    nodes,
+    edges,
+    note: template.note
+  };
+}
+
 function buildLocalDiagram(messages, answer = "") {
   const text = latestUserText(messages).replace(/\s+/g, " ");
-  const context = `${text}\n${answer}`.replace(/\s+/g, " ");
+  const problemText = diagramProblemText(messages).replace(/\s+/g, " ");
+  const context = `${problemText}\n${answer}`.replace(/\s+/g, " ");
+  const problemSource = problemText || text;
+
+  const intervalDiagram = buildIntervalPlacementDiagram(problemSource);
+  if (intervalDiagram) return intervalDiagram;
+
+  const primaryOlympiadDiagram = buildPrimaryOlympiadDiagram(problemSource);
+  if (primaryOlympiadDiagram) return primaryOlympiadDiagram;
 
   const explicitShapeDiagram = buildShapeKnowledgeDiagram(text);
   if (explicitShapeDiagram && /知识|概念|学习|学|讲|解释|理解|相关/.test(text)) {
@@ -1867,6 +2108,19 @@ function buildLocalDiagram(messages, answer = "") {
     ],
     note: brief
   };
+}
+
+function diagramMatchesProblem(diagram, messages = []) {
+  if (!diagram || !Array.isArray(diagram.nodes) || !diagram.nodes.length) return false;
+  const demoType = String(diagram.demoType || "");
+  const source = `${diagramProblemText(messages)}\n${latestUserText(messages)}`;
+  if (isIntervalPlacementContext(source)) return demoType === "interval-line";
+  if (classifyPrimaryOlympiadContext(source)) return demoType === "primary-olympiad";
+  if (/^geometry/.test(demoType)) {
+    return isGeometryExampleContext(source)
+      || /几何|三角形|四边形|梯形|平行四边形|菱形|正方形|长方形|圆|平行|垂直|相似|全等|切线|弦|半径|直径|△|∠|⊙|[A-Z]{2,3}/.test(source);
+  }
+  return true;
 }
 
 function buildDirectShapeDefinitionResult(messages, profile = {}) {
@@ -2325,7 +2579,8 @@ async function callDeepSeek(messages, profile) {
     const showDiagram = shouldShowLocalDiagram(messages, profile);
     const preferLocal = showDiagram && shouldPreferLocalDiagram(messages, profile);
     const localDiagram = showDiagram ? buildLocalDiagram(messages, raw) : null;
-    const aiDiagram = showDiagram && !preferLocal ? await callOpenAIDiagram(messages, raw, profile) : null;
+    const aiDiagramCandidate = showDiagram && !preferLocal ? await callOpenAIDiagram(messages, raw, profile) : null;
+    const aiDiagram = diagramMatchesProblem(aiDiagramCandidate, messages) ? aiDiagramCandidate : null;
     return {
       answer: raw,
       diagramAction: showDiagram ? "show" : "hold",
@@ -2336,12 +2591,14 @@ async function callDeepSeek(messages, profile) {
   }
   const shouldForceDiagram = shouldShowLocalDiagram(messages, profile);
   const action = ["hold", "show", "update"].includes(parsed.diagramAction) ? parsed.diagramAction : "hold";
-  const normalizedDiagram = action === "hold" ? null : normalizeDiagram(parsed.diagram);
+  const normalizedCandidate = action === "hold" ? null : normalizeDiagram(parsed.diagram);
+  const normalizedDiagram = diagramMatchesProblem(normalizedCandidate, messages) ? normalizedCandidate : null;
   const finalAction = action === "hold" && shouldForceDiagram ? "show" : action;
   const answer = String(parsed.answer || raw).trim();
   const preferLocal = finalAction !== "hold" && shouldPreferLocalDiagram(messages, profile);
   const localDiagram = finalAction === "hold" ? null : buildLocalDiagram(messages, answer);
-  const aiDiagram = finalAction === "hold" || preferLocal ? null : await callOpenAIDiagram(messages, answer, profile);
+  const aiDiagramCandidate = finalAction === "hold" || preferLocal ? null : await callOpenAIDiagram(messages, answer, profile);
+  const aiDiagram = diagramMatchesProblem(aiDiagramCandidate, messages) ? aiDiagramCandidate : null;
   return {
     answer,
     diagramAction: finalAction,
@@ -3187,7 +3444,8 @@ async function handleChatStream(req, res) {
       answer = String(parsed.answer || answer).trim();
       const action = ["hold", "show", "update"].includes(parsed.diagramAction) ? parsed.diagramAction : "hold";
       diagramAction = action === "hold" && shouldShowLocalDiagram(messages, profile) ? "show" : action;
-      const normalizedDiagram = action === "hold" ? null : normalizeDiagram(parsed.diagram);
+      const normalizedCandidate = action === "hold" ? null : normalizeDiagram(parsed.diagram);
+      const normalizedDiagram = diagramMatchesProblem(normalizedCandidate, messages) ? normalizedCandidate : null;
       if (normalizedDiagram?.nodes?.length) diagram = normalizedDiagram;
     }
     if (diagramAction !== "hold" && shouldPreferLocalDiagram(messages, profile)) {
@@ -3196,7 +3454,8 @@ async function handleChatStream(req, res) {
     if (diagramAction !== "hold" && !diagram) {
       const preferLocal = shouldPreferLocalDiagram(messages, profile);
       const localDiagram = buildLocalDiagram(messages, answer);
-      const aiDiagram = preferLocal ? null : await callOpenAIDiagram(messages, answer, profile).catch(() => null);
+      const aiDiagramCandidate = preferLocal ? null : await callOpenAIDiagram(messages, answer, profile).catch(() => null);
+      const aiDiagram = diagramMatchesProblem(aiDiagramCandidate, messages) ? aiDiagramCandidate : null;
       diagram = preferLocal ? localDiagram : (aiDiagram || localDiagram);
     }
 

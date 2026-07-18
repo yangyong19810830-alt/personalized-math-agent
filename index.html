@@ -2335,12 +2335,130 @@
       );
     }
 
+    function renderPrimaryOlympiadDiagram(diagram) {
+      const title = escapeHtml(diagram?.title || "小学奥数结构示意图");
+      const kind = String(diagram?.figure?.kind || "");
+      const nodes = Array.isArray(diagram?.nodes) ? diagram.nodes : [];
+      const nodeText = (index, fallback) => escapeHtml(String(nodes[index]?.label || fallback).slice(0, 11));
+      const rawNumbers = Array.isArray(diagram?.figure?.labels) ? diagram.figure.labels.filter(Boolean).slice(0, 8) : [];
+      const dataText = rawNumbers.length ? `题中数据：${rawNumbers.join("、")}` : "图中只表示原题关系，不额外猜测条件";
+      const defs = `<defs><marker id="olympiadArrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#667085"/></marker></defs>`;
+      let body = "";
+
+      if (["bar-model", "fraction-bars", "age-bars", "average-bars", "distribution-balance"].includes(kind)) {
+        body = `
+          <g class="diagram-node" style="--delay:0ms"><text x="22" y="52" font-size="11" fill="#344054">${nodeText(0, "第一数量")}</text><rect x="92" y="34" width="112" height="24" rx="5" fill="#dbeafe" stroke="#1d4ed8"/></g>
+          <g class="diagram-node" style="--delay:360ms"><text x="22" y="96" font-size="11" fill="#344054">${nodeText(3, "第二数量")}</text><rect x="92" y="78" width="176" height="24" rx="5" fill="#ede9fe" stroke="#6d28d9"/><line x1="204" y1="78" x2="204" y2="102" stroke="#c2410c" stroke-dasharray="4 3"/></g>
+          <path class="diagram-edge" pathLength="1" style="--delay:760ms" d="M92 123 H268" stroke="#667085" marker-end="url(#olympiadArrow)"/>
+          <text class="diagram-edge-label" style="--delay:980ms" x="180" y="143" text-anchor="middle" font-size="11" fill="#475467">${nodeText(2, "对齐相同部分，观察差异")}</text>
+          <g class="diagram-node diagram-focus" style="--delay:1250ms"><rect x="66" y="162" width="188" height="34" rx="7" fill="#eef8f6" stroke="#0f766e"/><text x="160" y="184" text-anchor="middle" font-size="12" fill="#0f766e">${nodeText(4, "推出目标量")}</text></g>`;
+      } else if (kind === "route-line") {
+        body = `
+          <line class="diagram-edge" pathLength="1" style="--delay:0ms" x1="30" y1="112" x2="290" y2="112" stroke="#1d4ed8" stroke-width="3"/>
+          <g class="diagram-node" style="--delay:260ms"><circle cx="34" cy="112" r="7" fill="#0f766e"/><text x="34" y="140" text-anchor="middle" font-size="11">${nodeText(0, "起点")}</text></g>
+          <g class="diagram-node" style="--delay:520ms"><path d="M52 84 H148" stroke="#f97316" stroke-width="3" marker-end="url(#olympiadArrow)"/><text x="98" y="72" text-anchor="middle" font-size="11">${nodeText(1, "对象A")}</text></g>
+          <g class="diagram-node" style="--delay:780ms"><path d="M270 84 H172" stroke="#6d28d9" stroke-width="3" marker-end="url(#olympiadArrow)"/><text x="224" y="72" text-anchor="middle" font-size="11">${nodeText(2, "对象B")}</text></g>
+          <g class="diagram-node diagram-focus" style="--delay:1120ms"><circle cx="160" cy="112" r="8" fill="#c2410c"/><text x="160" y="140" text-anchor="middle" font-size="11">${nodeText(3, "相遇/追及点")}</text></g>
+          <text class="diagram-edge-label" style="--delay:1400ms" x="160" y="185" text-anchor="middle" font-size="12" fill="#0f766e">${nodeText(4, "路程=速度×时间")}</text>`;
+      } else if (kind === "unit-work") {
+        body = `
+          <g class="diagram-node" style="--delay:0ms"><rect x="38" y="42" width="244" height="32" rx="7" fill="#f8fafc" stroke="#98a2b3"/><rect x="38" y="42" width="244" height="32" rx="7" fill="#dbeafe"/><text x="160" y="63" text-anchor="middle" font-size="12">${nodeText(0, "总工作量=1")}</text></g>
+          <g class="diagram-node" style="--delay:420ms"><rect x="38" y="94" width="104" height="30" rx="7" fill="#ede9fe" stroke="#6d28d9"/><text x="90" y="114" text-anchor="middle" font-size="11">${nodeText(1, "对象A效率")}</text></g>
+          <g class="diagram-node" style="--delay:660ms"><rect x="178" y="94" width="104" height="30" rx="7" fill="#fff7ed" stroke="#f97316"/><text x="230" y="114" text-anchor="middle" font-size="11">${nodeText(2, "对象B效率")}</text></g>
+          <path class="diagram-edge" style="--delay:900ms" d="M90 126 C105 154,135 154,160 166 M230 126 C215 154,185 154,160 166" fill="none" stroke="#667085" marker-end="url(#olympiadArrow)"/>
+          <g class="diagram-node diagram-focus" style="--delay:1200ms"><rect x="86" y="168" width="148" height="34" rx="7" fill="#eef8f6" stroke="#0f766e"/><text x="160" y="190" text-anchor="middle" font-size="12">${nodeText(3, "合做效率")}</text></g>`;
+      } else if (kind === "cycle-strip") {
+        const colors = ["#dbeafe", "#fef3c7", "#dcfce7", "#fce7f3"];
+        body = Array.from({ length: 8 }, (_, index) => `<g class="diagram-node" style="--delay:${index * 150}ms"><rect x="${24 + index * 34}" y="72" width="28" height="42" rx="4" fill="${colors[index % 4]}" stroke="#667085"/><text x="${38 + index * 34}" y="98" text-anchor="middle" font-size="11">${(index % 4) + 1}</text></g>`).join("")
+          + `<path class="diagram-edge" style="--delay:1300ms" d="M24 132 H156 M160 132 H292" stroke="#0f766e" stroke-width="2"/><text x="90" y="151" text-anchor="middle" font-size="11">${nodeText(0, "最小重复组")}</text><text x="226" y="151" text-anchor="middle" font-size="11">重复一组</text><g class="diagram-node diagram-focus" style="--delay:1550ms"><rect x="78" y="174" width="164" height="32" rx="7" fill="#eef8f6" stroke="#0f766e"/><text x="160" y="195" text-anchor="middle" font-size="11">${nodeText(3, "余数确定组内位置")}</text></g>`;
+      } else if (kind === "venn") {
+        body = `<g class="diagram-node" style="--delay:0ms"><circle cx="122" cy="105" r="62" fill="#dbeafe" fill-opacity=".72" stroke="#1d4ed8" stroke-width="2"/><text x="88" y="78" text-anchor="middle" font-size="12">${nodeText(0, "集合A")}</text></g><g class="diagram-node" style="--delay:420ms"><circle cx="198" cy="105" r="62" fill="#fce7f3" fill-opacity=".72" stroke="#be185d" stroke-width="2"/><text x="232" y="78" text-anchor="middle" font-size="12">${nodeText(1, "集合B")}</text></g><g class="diagram-node diagram-focus" style="--delay:850ms"><text x="160" y="110" text-anchor="middle" font-size="11" fill="#7c2d12">${nodeText(2, "重复部分")}</text></g><text x="160" y="196" text-anchor="middle" font-size="12" fill="#0f766e">${nodeText(4, "求合并后的总数")}</text>`;
+      } else if (kind === "pigeonhole") {
+        body = Array.from({ length: 4 }, (_, index) => `<g class="diagram-node" style="--delay:${index * 240}ms"><rect x="${24 + index * 74}" y="82" width="58" height="68" rx="6" fill="#f8fafc" stroke="#475467"/><circle cx="${40 + index * 74}" cy="104" r="5" fill="#1d4ed8"/><circle cx="${54 + index * 74}" cy="104" r="5" fill="#1d4ed8"/>${index === 0 ? `<circle class="diagram-focus" cx="68" cy="104" r="5" fill="#f97316"/>` : ""}</g>`).join("") + `<text x="160" y="54" text-anchor="middle" font-size="12">${nodeText(2, "先尽量平均分")}</text><text x="160" y="184" text-anchor="middle" font-size="12" fill="#0f766e">${nodeText(4, "至少一个抽屉更多")}</text>`;
+      } else if (kind === "choice-tree" || kind === "reverse-chain") {
+        body = kind === "choice-tree"
+          ? `<g class="diagram-node" style="--delay:0ms"><circle cx="54" cy="116" r="9" fill="#0f766e"/></g><path class="diagram-edge" style="--delay:300ms" d="M64 112 L132 62 M64 120 L132 170" stroke="#667085" marker-end="url(#olympiadArrow)"/><path class="diagram-edge" style="--delay:650ms" d="M140 62 L246 38 M140 62 L246 88 M140 170 L246 144 M140 170 L246 196" stroke="#667085" marker-end="url(#olympiadArrow)"/><text x="54" y="145" text-anchor="middle" font-size="11">${nodeText(0, "第一步")}</text><text x="136" y="116" text-anchor="middle" font-size="11">${nodeText(1, "第二步")}</text><text x="250" y="222" text-anchor="middle" font-size="11" fill="#0f766e">${nodeText(4, "统计完整路径")}</text>`
+          : `<g class="diagram-node diagram-focus" style="--delay:0ms"><rect x="224" y="92" width="72" height="38" rx="7" fill="#ecfdf3" stroke="#15803d"/><text x="260" y="116" text-anchor="middle" font-size="11">${nodeText(0, "最后结果")}</text></g><path class="diagram-edge" style="--delay:350ms" d="M220 111 H162" stroke="#667085" marker-end="url(#olympiadArrow)"/><g class="diagram-node" style="--delay:700ms"><rect x="86" y="92" width="72" height="38" rx="7" fill="#ede9fe" stroke="#6d28d9"/><text x="122" y="116" text-anchor="middle" font-size="11">${nodeText(2, "逐步逆推")}</text></g><path class="diagram-edge" style="--delay:1050ms" d="M82 111 H28" stroke="#667085" marker-end="url(#olympiadArrow)"/><text x="160" y="165" text-anchor="middle" font-size="12" fill="#0f766e">按相反顺序撤销操作</text>`;
+      } else if (kind === "logic-grid" || kind === "number-grid") {
+        const cells = Array.from({ length: 9 }, (_, index) => `<rect class="diagram-node" style="--delay:${index * 100}ms" x="${88 + (index % 3) * 48}" y="${48 + Math.floor(index / 3) * 48}" width="44" height="44" fill="${index === 4 ? "#eef8f6" : "#fff"}" stroke="#667085"/>`).join("");
+        body = `${cells}<text x="160" y="30" text-anchor="middle" font-size="12">${nodeText(0, "行列对象")}</text><text x="160" y="214" text-anchor="middle" font-size="12" fill="#0f766e">${nodeText(4, "唯一对应/待填数字")}</text>`;
+      } else if (kind === "mixture") {
+        body = `<path class="diagram-node" style="--delay:0ms" d="M100 72 H220 L206 190 Q160 212 114 190 Z" fill="#dbeafe" stroke="#1d4ed8" stroke-width="2"/><path class="diagram-edge" style="--delay:350ms" d="M48 48 C72 52,84 62,110 86" fill="none" stroke="#f97316" marker-end="url(#olympiadArrow)"/><text x="46" y="34" text-anchor="middle" font-size="11">${nodeText(1, "加入/取出")}</text><text x="160" y="118" text-anchor="middle" font-size="12">${nodeText(2, "溶质数量")}</text><text x="160" y="148" text-anchor="middle" font-size="12">${nodeText(3, "溶液总量")}</text><text x="160" y="226" text-anchor="middle" font-size="12" fill="#0f766e">${nodeText(4, "新浓度")}</text>`;
+      } else if (kind === "number-groups") {
+        body = Array.from({ length: 3 }, (_, group) => `<g class="diagram-node" style="--delay:${group * 300}ms"><rect x="${24 + group * 88}" y="70" width="70" height="64" rx="8" fill="#f8fafc" stroke="#475467"/>${Array.from({ length: 4 }, (_, dot) => `<circle cx="${40 + group * 88 + (dot % 2) * 26}" cy="${88 + Math.floor(dot / 2) * 26}" r="5" fill="#1d4ed8"/>`).join("")}</g>`).join("") + `<g class="diagram-node diagram-focus" style="--delay:1100ms"><circle cx="290" cy="102" r="6" fill="#f97316"/></g><text x="160" y="52" text-anchor="middle" font-size="12">${nodeText(1, "按除数分组")}</text><text x="160" y="174" text-anchor="middle" font-size="12" fill="#0f766e">${nodeText(3, "余数")}</text>`;
+      } else {
+        body = `<g class="diagram-node" style="--delay:0ms"><rect x="24" y="86" width="84" height="46" rx="7" fill="#dbeafe" stroke="#1d4ed8"/><text x="66" y="113" text-anchor="middle" font-size="11">${nodeText(0, "已知对象")}</text></g><path class="diagram-edge" style="--delay:380ms" d="M112 109 H204" stroke="#667085" marker-end="url(#olympiadArrow)"/><g class="diagram-node diagram-focus" style="--delay:780ms"><rect x="208" y="86" width="88" height="46" rx="7" fill="#eef8f6" stroke="#0f766e"/><text x="252" y="113" text-anchor="middle" font-size="11">${nodeText(4, "目标结果")}</text></g>`;
+      }
+
+      visualCard(
+        title,
+        `<svg viewBox="0 0 320 240" role="img" aria-label="小学奥数题型结构示意图">${defs}${body}<text x="160" y="232" text-anchor="middle" font-size="10" fill="#667085">${escapeHtml(dataText.slice(0, 38))}</text></svg>`,
+        escapeHtml(diagram?.note || "图中只呈现原题的对象和数量关系。"),
+        `<button class="btn" type="button" data-replay-diagram>重新播放</button>`
+      );
+    }
+
+    function renderIntervalLineDiagram(diagram) {
+      const title = escapeHtml(diagram?.title || "等距线段示意图");
+      const labels = Array.isArray(diagram?.figure?.labels) && diagram.figure.labels.length >= 2
+        ? diagram.figure.labels.slice(0, 11).map(label => String(label || ""))
+        : ["起点", "", "", "", "", "", "终点"];
+      const count = labels.length;
+      const startX = 26;
+      const endX = 294;
+      const y = 116;
+      const step = (endX - startX) / Math.max(1, count - 1);
+      const spacingText = escapeHtml(diagram?.nodes?.find(node => node.id === "n2")?.label || "相邻位置等距");
+      const endpointText = escapeHtml(diagram?.nodes?.find(node => node.id === "n4")?.label || "核对两端");
+      const resultText = escapeHtml(diagram?.nodes?.find(node => node.id === "n5")?.label || "确定位置数");
+      const markers = labels.map((label, index) => {
+        const x = startX + step * index;
+        const delay = 300 + index * 150;
+        const labelText = label ? `<text x="${x}" y="151" text-anchor="middle" font-size="10" fill="#475467">${escapeHtml(label)}</text>` : "";
+        return `<g class="diagram-node${index === 0 || index === count - 1 ? " diagram-focus" : ""}" style="--delay:${delay}ms">
+          <line x1="${x}" y1="${y - 22}" x2="${x}" y2="${y}" stroke="#8b5e3c" stroke-width="2"/>
+          <circle cx="${x}" cy="${y - 28}" r="8" fill="#16a34a" stroke="#15803d"/>
+          <circle cx="${x - 5}" cy="${y - 24}" r="6" fill="#22c55e"/>
+          <circle cx="${x + 5}" cy="${y - 24}" r="6" fill="#22c55e"/>
+          <circle cx="${x}" cy="${y}" r="3.5" fill="#0f766e"/>
+          ${labelText}
+        </g>`;
+      }).join("");
+      const intervalLabels = Array.from({ length: Math.max(0, count - 1) }, (_, index) => {
+        const x = startX + step * (index + 0.5);
+        return `<text class="diagram-edge-label" style="--delay:${520 + index * 150}ms" x="${x}" y="132" text-anchor="middle" font-size="9" fill="#667085">${index === 0 ? spacingText : ""}</text>`;
+      }).join("");
+
+      visualCard(
+        title,
+        `<svg viewBox="0 0 320 220" role="img" aria-label="等距种植线段示意图">
+          <line class="diagram-edge" pathLength="1" style="--delay:0ms" x1="${startX}" y1="${y}" x2="${endX}" y2="${y}" stroke="#1d4ed8" stroke-width="3"/>
+          ${markers}
+          ${intervalLabels}
+          <g class="diagram-node" style="--delay:1400ms">
+            <rect x="54" y="169" width="212" height="32" rx="7" fill="#eef8f6" stroke="#0f766e"/>
+            <text x="160" y="190" text-anchor="middle" font-size="12" fill="#0f766e">${endpointText} → ${resultText}</text>
+          </g>
+        </svg>`,
+        escapeHtml(diagram?.note || "先用总长除以间距得到间隔数，再根据两端是否都设置确定位置数。"),
+        `<button class="btn" type="button" data-replay-diagram>重新播放</button>`
+      );
+    }
+
     function renderStructureDiagram(diagram) {
       if (!diagram || !Array.isArray(diagram.nodes) || !diagram.nodes.length) {
         drawDefault();
         return;
       }
       const demoType = String(diagram.demoType || "");
+      if (/interval-line/.test(demoType)) {
+        renderIntervalLineDiagram(diagram);
+        return;
+      }
+      if (/primary-olympiad/.test(demoType)) {
+        renderPrimaryOlympiadDiagram(diagram);
+        return;
+      }
       if (/function/.test(demoType)) {
         renderFunctionConceptDiagram(diagram);
         return;
