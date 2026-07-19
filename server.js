@@ -2,10 +2,12 @@ const http = require("http");
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
+const { Worker } = require("worker_threads");
+const AdmZip = require("adm-zip");
 
 const PORT = Number(process.env.PORT || 8787);
 const ROOT = __dirname;
-const APP_VERSION = "sde-knowledge-20260704-followup-question-fix";
+const APP_VERSION = "sde-knowledge-20260719-document-reader";
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || "";
 const DEEPSEEK_BASE_URL = (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com").replace(/\/$/, "");
 const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || "deepseek-v4-pro";
@@ -74,6 +76,15 @@ const INVITES_FILE = path.join(DATA_DIR, "invites.json");
 const CONVERSATIONS_FILE = path.join(DATA_DIR, "conversations.json");
 const TTS_CACHE_DIR = path.join(DATA_DIR, "tts-cache");
 const pendingTts = new Map();
+const UPLOAD_MAX_BYTES = 8 * 1024 * 1024;
+const UPLOAD_MAX_TEXT_CHARS = 30000;
+const ZIP_MAX_ENTRIES = 40;
+const ZIP_MAX_READABLE_FILES = 12;
+const ZIP_MAX_UNCOMPRESSED_BYTES = 16 * 1024 * 1024;
+const ZIP_MAX_ENTRY_BYTES = 5 * 1024 * 1024;
+const FILE_PARSE_TIMEOUT_MS = Math.max(5000, Number(process.env.FILE_PARSE_TIMEOUT_MS || 20000));
+const PDF_MAX_PAGES = Math.max(1, Number(process.env.PDF_MAX_PAGES || 40));
+const READABLE_FILE_EXTENSIONS = new Set([".pdf", ".docx", ".md", ".markdown", ".html", ".htm", ".txt", ".zip"]);
 
 const mime = {
   ".html": "text/html; charset=utf-8",
@@ -3498,6 +3509,280 @@ async function handleChatStream(req, res) {
   }
 }
 
+function decodeHtmlEntities(value) {
+  const named = {
+    amp: "&",
+    lt: "<",
+    gt: ">",
+    quot: '"',
+    apos: "'",
+    nbsp: " "
+  };
+  return String(value || "").replace(/&(#x?[0-9a-f]+|[a-z]+);/gi, (match, entity) => {
+    const key = String(entity || "").toLowerCase();
+    if (key.startsWith("#x")) {
+      const code = Number.parseInt(key.slice(2), 16);
+      return Number.isFinite(code) ? String.fromCodePoint(code) : match;
+    }
+    if (key.startsWith("#")) {
+      const code = Number.parseInt(key.slice(1), 10);
+      return Number.isFinite(code) ? String.fromCodePoint(code) : match;
+    }
+    return Object.prototype.hasOwnProperty.call(named, key) ? named[key] : match;
+  });
+}
+
+function htmlToReadableText(html) {
+  const withoutActiveContent = String(html || "")
+    .replace(/<!--[\s\S]*?-->/g, " ")
+    .replace(/<(script|style|noscript|template|svg|iframe)[^>]*>[\s\S]*?<\/\1\s*>/gi, " ")
+    .replace(/<(br|hr)\s*\/?\s*>/gi, "\n")
+    .replace(/<\/(p|div|section|article|header|footer|main|aside|h[1-6]|li|tr|table)\s*>/gi, "\n")
+    .replace(/<li[^>]*>/gi, "- ")
+    .replace(/<[^>]+>/g, " ");
+  return decodeHtmlEntities(withoutActiveContent);
+}
+
+function cleanExtractedText(value, maxChars = UPLOAD_MAX_TEXT_CHARS) {
+  const normalized = String(value || "")
+    .replace(/^\uFEFF/, "")
+    .replace(/\r\n?/g, "\n")
+    .replace(/[\t\f\v]+/g, " ")
+    .replace(/[ \u00a0]+\n/g, "\n")
+    .replace(/\n[ \u00a0]+/g, "\n")
+    .replace(/[ \u00a0]{2,}/g, " ")
+    .replace(/\n{4,}/g, "\n\n\n")
+    .trim();
+  return {
+    text: normalized.slice(0, maxChars),
+    truncated: normalized.length > maxChars,
+    originalChars: normalized.length
+  };
+}
+
+function uploadError(message, statusCode = 400) {
+  const error = new Error(message);
+  error.statusCode = statusCode;
+  return error;
+}
+
+function safeUploadName(value) {
+  return path.basename(String(value || "").replace(/\\/g, "/")).slice(0, 180);
+}
+
+function decodeUploadDataUrl(value) {
+  const match = /^data:([^;,]*);base64,([a-z0-9+/=\r\n]+)$/i.exec(String(value || ""));
+  if (!match) throw uploadError("文件数据无效，请重新选择文件。");
+  const base64 = match[2].replace(/\s+/g, "");
+  const estimatedBytes = Math.floor(base64.length * 0.75);
+  if (estimatedBytes > UPLOAD_MAX_BYTES) {
+    throw uploadError("文件太大了，请上传 8MB 以内的文件。");
+  }
+  const buffer = Buffer.from(base64, "base64");
+  if (!buffer.length) throw uploadError("文件内容为空，请重新选择文件。");
+  if (buffer.length > UPLOAD_MAX_BYTES) {
+    throw uploadError("文件太大了，请上传 8MB 以内的文件。");
+  }
+  return { buffer, mimeType: match[1] || "application/octet-stream" };
+}
+
+function readableExtension(fileName) {
+  return path.extname(String(fileName || "")).toLowerCase();
+}
+
+function parseDocumentInWorker(kind, buffer) {
+  return new Promise((resolve, reject) => {
+    const worker = new Worker(path.join(ROOT, "file-parser-worker.js"), {
+      workerData: { kind, buffer, maxPages: PDF_MAX_PAGES },
+      stdout: true,
+      stderr: true
+    });
+    worker.stdout?.resume();
+    worker.stderr?.resume();
+    let settled = false;
+    const finish = callback => value => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      callback(value);
+    };
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      worker.terminate().catch(() => {});
+      reject(uploadError(`文档读取超过 ${Math.round(FILE_PARSE_TIMEOUT_MS / 1000)} 秒，请拆分文件或只保留需要阅读的页面。`, 408));
+    }, FILE_PARSE_TIMEOUT_MS);
+    worker.once("message", finish(message => {
+      worker.terminate().catch(() => {});
+      if (message?.error) reject(uploadError(message.error));
+      else resolve(message || {});
+    }));
+    worker.once("error", finish(error => reject(error)));
+    worker.once("exit", code => {
+      if (!settled && code !== 0) finish(reject)(uploadError("文档解析进程异常退出，请换一个文件重试。"));
+    });
+  });
+}
+
+async function extractReadableFile(buffer, fileName, options = {}) {
+  const extension = readableExtension(fileName);
+  if (!READABLE_FILE_EXTENSIONS.has(extension)) {
+    if (extension === ".doc") {
+      throw uploadError("暂不支持旧版 .doc 文件，请在 Word 中另存为 .docx 后上传。");
+    }
+    throw uploadError("暂不支持这种文件。可以上传 PDF、Word（.docx）、Markdown、HTML、TXT 或 ZIP。");
+  }
+
+  let rawText = "";
+  const warnings = [];
+  if ([".md", ".markdown", ".txt"].includes(extension)) {
+    rawText = buffer.toString("utf8");
+  } else if ([".html", ".htm"].includes(extension)) {
+    rawText = htmlToReadableText(buffer.toString("utf8"));
+  } else if (extension === ".docx") {
+    const result = await parseDocumentInWorker("docx", buffer);
+    rawText = result.text || "";
+    if (result.warningCount) {
+      warnings.push("Word 中少量复杂排版、公式或浮动文本框可能未被完整提取。");
+    }
+  } else if (extension === ".pdf") {
+    const result = await parseDocumentInWorker("pdf", buffer);
+    rawText = result.text || "";
+    if (!rawText.trim()) {
+      throw uploadError("这个 PDF 可能是扫描版，未读取到文字。请把相关页面截图后按图片上传。");
+    }
+    if (result.totalPages > result.renderedPages && result.renderedPages > 0) {
+      warnings.push(`PDF 共 ${result.totalPages} 页，本次先读取前 ${result.renderedPages} 页。可拆分后继续上传其余部分。`);
+    }
+  } else if (extension === ".zip") {
+    if (options.inZip) throw uploadError("ZIP 中的嵌套压缩包不会继续展开。");
+    return extractReadableZip(buffer, fileName);
+  }
+
+  const cleaned = cleanExtractedText(rawText);
+  if (!cleaned.text) throw uploadError(`没有从 ${safeUploadName(fileName)} 中读取到可用文字。`);
+  if (cleaned.truncated) warnings.push(`文档较长，本次先读取前 ${UPLOAD_MAX_TEXT_CHARS} 个字符。`);
+  return {
+    text: cleaned.text,
+    fileType: extension.slice(1).toUpperCase(),
+    warnings,
+    truncated: cleaned.truncated,
+    originalChars: cleaned.originalChars
+  };
+}
+
+async function extractReadableZip(buffer, fileName) {
+  let entries;
+  try {
+    entries = new AdmZip(buffer).getEntries();
+  } catch {
+    throw uploadError("ZIP 压缩包已损坏或无法读取。");
+  }
+  if (entries.length > ZIP_MAX_ENTRIES) {
+    throw uploadError(`ZIP 内文件过多，最多支持 ${ZIP_MAX_ENTRIES} 个文件。`);
+  }
+
+  let totalUncompressed = 0;
+  let actualUncompressed = 0;
+  let combined = "";
+  const warnings = [];
+  let readCount = 0;
+  for (const entry of entries) {
+    if (entry.isDirectory) continue;
+    const entryName = String(entry.entryName || "").replace(/\\/g, "/");
+    const normalized = path.posix.normalize(entryName);
+    if (!normalized || normalized.startsWith("../") || normalized.startsWith("/") || normalized.includes("/../")) {
+      warnings.push(`已跳过不安全路径：${entryName.slice(0, 80)}`);
+      continue;
+    }
+    const extension = readableExtension(normalized);
+    if (!READABLE_FILE_EXTENSIONS.has(extension) || extension === ".zip") continue;
+    if (readCount >= ZIP_MAX_READABLE_FILES) {
+      warnings.push(`压缩包内可读取文件较多，本次先读取前 ${ZIP_MAX_READABLE_FILES} 个。`);
+      break;
+    }
+    const declaredSize = Number(entry.header?.size || 0);
+    if (declaredSize > ZIP_MAX_ENTRY_BYTES) {
+      warnings.push(`已跳过过大的文件：${normalized.slice(0, 80)}`);
+      continue;
+    }
+    totalUncompressed += declaredSize;
+    if (totalUncompressed > ZIP_MAX_UNCOMPRESSED_BYTES) {
+      throw uploadError("ZIP 解压后的内容过大，请只保留需要阅读的文件后重新压缩。");
+    }
+
+    try {
+      const entryBuffer = entry.getData();
+      if (entryBuffer.length > ZIP_MAX_ENTRY_BYTES) {
+        warnings.push(`已跳过过大的文件：${normalized.slice(0, 80)}`);
+        continue;
+      }
+      actualUncompressed += entryBuffer.length;
+      if (actualUncompressed > ZIP_MAX_UNCOMPRESSED_BYTES) {
+        throw uploadError("ZIP 解压后的内容过大，请只保留需要阅读的文件后重新压缩。");
+      }
+      const extracted = await extractReadableFile(entryBuffer, normalized, { inZip: true });
+      const remaining = UPLOAD_MAX_TEXT_CHARS - combined.length;
+      if (remaining <= 0) break;
+      const section = `\n\n【${normalized}】\n${extracted.text}`;
+      combined += section.slice(0, remaining);
+      warnings.push(...(extracted.warnings || []));
+      readCount += 1;
+    } catch (error) {
+      warnings.push(`未能读取 ${normalized.slice(0, 80)}：${error.message}`);
+    }
+  }
+
+  const cleaned = cleanExtractedText(combined);
+  if (!cleaned.text || !readCount) {
+    throw uploadError("ZIP 中没有可读取的 PDF、DOCX、Markdown、HTML 或 TXT 文件。");
+  }
+  if (combined.length >= UPLOAD_MAX_TEXT_CHARS) {
+    warnings.push(`压缩包内容较长，本次先读取前 ${UPLOAD_MAX_TEXT_CHARS} 个字符。`);
+  }
+  return {
+    text: cleaned.text,
+    fileType: "ZIP",
+    warnings: Array.from(new Set(warnings)).slice(0, 8),
+    truncated: combined.length >= UPLOAD_MAX_TEXT_CHARS,
+    originalChars: cleaned.originalChars,
+    readCount
+  };
+}
+
+async function handleFileRead(req, res) {
+  try {
+    const user = getUserFromRequest(req);
+    if (!user) {
+      sendJson(res, 401, { error: "请先登录后再上传文件" });
+      return;
+    }
+    if (!isTrialActive(user)) {
+      sendJson(res, 403, { error: "试用期已经结束。请联系老师或管理员获取新的试用资格。" });
+      return;
+    }
+    const body = JSON.parse(await readBody(req, 12 * 1024 * 1024) || "{}");
+    const fileName = safeUploadName(body.fileName);
+    if (!fileName) {
+      sendJson(res, 400, { error: "缺少文件名，请重新选择文件。" });
+      return;
+    }
+    const { buffer } = decodeUploadDataUrl(body.data);
+    const result = await extractReadableFile(buffer, fileName);
+    sendJson(res, 200, {
+      fileName,
+      fileType: result.fileType,
+      text: result.text,
+      chars: result.text.length,
+      truncated: Boolean(result.truncated),
+      readCount: result.readCount || 1,
+      warnings: result.warnings || []
+    });
+  } catch (error) {
+    sendJson(res, error.statusCode || 500, { error: error.message || "文件读取失败" });
+  }
+}
+
 async function handleVision(req, res) {
   try {
     const user = getUserFromRequest(req);
@@ -3651,6 +3936,10 @@ const server = http.createServer((req, res) => {
   }
   if (req.method === "POST" && req.url === "/api/vision") {
     handleVision(req, res);
+    return;
+  }
+  if (req.method === "POST" && req.url === "/api/files/read") {
+    handleFileRead(req, res);
     return;
   }
   if (req.method === "POST" && req.url === "/api/tts") {

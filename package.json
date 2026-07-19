@@ -6,6 +6,11 @@
   "scripts": {
     "start": "node server.js"
   },
+  "dependencies": {
+    "adm-zip": "^0.5.16",
+    "mammoth": "^1.9.1",
+    "pdf-parse": "1.1.1"
+  },
   "engines": {
     "node": ">=18"
   }
