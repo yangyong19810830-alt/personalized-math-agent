@@ -4,10 +4,11 @@ const path = require("path");
 const crypto = require("crypto");
 const { Worker } = require("worker_threads");
 const AdmZip = require("adm-zip");
+const { buildRagContext, getRagStatus } = require("./rag-retriever");
 
 const PORT = Number(process.env.PORT || 8787);
 const ROOT = __dirname;
-const APP_VERSION = "sde-knowledge-20260719-document-reader";
+const APP_VERSION = "sde-knowledge-20260724-professional-rag-v0.2";
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || "";
 const DEEPSEEK_BASE_URL = (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com").replace(/\/$/, "");
 const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || "deepseek-v4-pro";
@@ -2347,6 +2348,7 @@ function buildDeepSeekPayload(messages, profile, config, options = {}) {
         role: "system",
         content: [
           systemPrompt(profile || {}, messages),
+          buildRagContext(messages, profile || {}),
           modelPromptLine(config),
           learningPlanLine(messages, profile || {}),
           directQuestionLine(messages),
@@ -3870,10 +3872,15 @@ async function handleStt(req, res) {
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
   if (req.method === "GET" && url.pathname === "/version") {
+    const ragStatus = getRagStatus();
     sendJson(res, 200, {
       version: APP_VERSION,
       chatLimitPerDay: DAILY_LIMIT,
-      deployedAt: "2026-07-02",
+      deployedAt: "2026-07-24",
+      ragEnabled: ragStatus.enabled,
+      ragVersion: ragStatus.version,
+      ragCardCount: ragStatus.cardCount,
+      ragError: ragStatus.error,
       visionProvider: VISION_PROVIDER,
       rawVisionProvider: RAW_VISION_PROVIDER,
       visionFallbackEnabled: VISION_FALLBACK_ENABLED,
@@ -3962,6 +3969,8 @@ const server = http.createServer((req, res) => {
 });
 
 server.listen(PORT, () => {
+  const ragStatus = getRagStatus();
   console.log(`Math Agent is running on http://localhost:${PORT}`);
   console.log(`Daily chat limit: ${DAILY_LIMIT}`);
+  console.log(`SDE RAG: ${ragStatus.enabled ? `${ragStatus.cardCount} cards (${ragStatus.version})` : `disabled - ${ragStatus.error}`}`);
 });
