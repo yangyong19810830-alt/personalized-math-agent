@@ -5,10 +5,15 @@ const crypto = require("crypto");
 const { Worker } = require("worker_threads");
 const AdmZip = require("adm-zip");
 const { buildRagContext, getRagStatus } = require("./rag-retriever");
+const {
+  buildImplementationContext,
+  getImplementationStatus,
+  implementationRoute
+} = require("./implementation-retriever");
 
 const PORT = Number(process.env.PORT || 8787);
 const ROOT = __dirname;
-const APP_VERSION = "sde-knowledge-20260724-rag-v0.2-inline-visuals";
+const APP_VERSION = "sde-knowledge-20260724-rag-v0.2-implementation-v2";
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || "";
 const DEEPSEEK_BASE_URL = (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com").replace(/\/$/, "");
 const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || "deepseek-v4-pro";
@@ -75,6 +80,7 @@ const DATA_DIR = path.join(ROOT, "data");
 const USERS_FILE = path.join(DATA_DIR, "users.json");
 const INVITES_FILE = path.join(DATA_DIR, "invites.json");
 const CONVERSATIONS_FILE = path.join(DATA_DIR, "conversations.json");
+const GROWTH_PROFILES_FILE = path.join(DATA_DIR, "growth-profiles.json");
 const TTS_CACHE_DIR = path.join(DATA_DIR, "tts-cache");
 const pendingTts = new Map();
 const UPLOAD_MAX_BYTES = 8 * 1024 * 1024;
@@ -108,6 +114,7 @@ function ensureDataStore() {
   if (!fs.existsSync(USERS_FILE)) fs.writeFileSync(USERS_FILE, "[]", "utf8");
   if (!fs.existsSync(INVITES_FILE)) fs.writeFileSync(INVITES_FILE, "[]", "utf8");
   if (!fs.existsSync(CONVERSATIONS_FILE)) fs.writeFileSync(CONVERSATIONS_FILE, "[]", "utf8");
+  if (!fs.existsSync(GROWTH_PROFILES_FILE)) fs.writeFileSync(GROWTH_PROFILES_FILE, "[]", "utf8");
 }
 
 function readUsers() {
@@ -150,6 +157,69 @@ function readConversations() {
 function writeConversations(conversations) {
   ensureDataStore();
   fs.writeFileSync(CONVERSATIONS_FILE, JSON.stringify(conversations, null, 2), "utf8");
+}
+
+function readGrowthProfiles() {
+  ensureDataStore();
+  try {
+    return JSON.parse(fs.readFileSync(GROWTH_PROFILES_FILE, "utf8"));
+  } catch {
+    return [];
+  }
+}
+
+function writeGrowthProfiles(profiles) {
+  ensureDataStore();
+  fs.writeFileSync(GROWTH_PROFILES_FILE, JSON.stringify(profiles, null, 2), "utf8");
+}
+
+function publicGrowthProfile(profile) {
+  if (!profile) return { settings: {}, entries: [], updatedAt: "" };
+  return {
+    settings: profile.settings || {},
+    entries: Array.isArray(profile.entries) ? profile.entries.slice(-30).reverse() : [],
+    updatedAt: profile.updatedAt || ""
+  };
+}
+
+function recordImplementationTurn(user, profile, userMessage, assistantMessage, conversationId = "") {
+  const route = implementationRoute([{ role: "user", content: userMessage }], profile);
+  if (!route) return null;
+  const profiles = readGrowthProfiles();
+  let growth = profiles.find(item => item.userId === user.id);
+  const now = new Date().toISOString();
+  if (!growth) {
+    growth = {
+      userId: user.id,
+      settings: {},
+      entries: [],
+      createdAt: now,
+      updatedAt: now
+    };
+    profiles.push(growth);
+  }
+  growth.settings = {
+    stage: profile.stage || growth.settings?.stage || "",
+    goal: profile.goal || growth.settings?.goal || "",
+    state: profile.state || growth.settings?.state || "",
+    planSpan: profile.planSpan || growth.settings?.planSpan || ""
+  };
+  growth.entries = Array.isArray(growth.entries) ? growth.entries : [];
+  growth.entries.push({
+    id: crypto.randomUUID(),
+    date: now.slice(0, 10),
+    createdAt: now,
+    route,
+    intent: String(profile.intent || ""),
+    stage: String(profile.stage || ""),
+    evidence: String(userMessage || "").slice(0, 1000),
+    guidance: String(assistantMessage || "").slice(0, 2600),
+    conversationId: String(conversationId || "")
+  });
+  growth.entries = growth.entries.slice(-120);
+  growth.updatedAt = now;
+  writeGrowthProfiles(profiles);
+  return publicGrowthProfile(growth);
 }
 
 function normalizeEmail(email) {
@@ -682,6 +752,12 @@ function systemPrompt(profile, messages = []) {
     "系统化学习指导功能：当用户要求学习计划、系统规划、今天学习、知识点学习、阶段路线、小学/初中/高中/大学数学规划时，不要按解题模式追问。要把自己切换为数学学习教练：先根据学生阶段、目标、当前状态和规划周期判断最该补的主线，再给出可执行计划。",
     "学习规划输出结构：1. 先用两三句话判断当前学习重点；2. 给出本阶段主线地图，按知识块排序；3. 给出规划周期内的学习安排；4. 给出今天第一节课怎么学；5. 配 3-5 道练习，按基础、迁移、表达复述分层；6. 给家长一个观察方法。不要只列大纲，每一项都要能执行。",
     "知识点学习课结构：选一个最适合当前画像的知识点；先说为什么现在学它；再用生活场景唤醒；然后讲核心结构；再给一题启发式练习；最后要求学生用一句话复述结构。若学生阶段是大学，生活化可以减少，重点放在定义环境、对象、结构、证明或计算路径。",
+    "个性化落地服务：当意图为 family_diagnosis、lesson_start、teacher_practice 或 practice_feedback 时，使用后台提供的《个性化数学学习落地服务》资料。先区分真实证据与成人判断，再按学段从小学低段、小学中高段、初中或高中任务库中选择一个最小任务，并写清提交成果、完成标准、提示层级和升级或退阶条件。",
+    "家庭诊断路径：如果还没有孩子的原始错题、讲题转写或练习作品，只索取一项最小证据，不要连续盘问。得到证据后输出当前观察、一个主要卡点、判断依据、置信度、暂不训练、本周期目标、最小任务、家长动作、学生提交内容和下一次判断。",
+    "学生自学路径：当意图为 lesson_start 或初高中学生提交自己的解题过程时，证据清楚就直接诊断，不要用一连串问题阻断。优先修复第一个错误节点，区分确定、猜测和卡住的步骤，训练后给一道结构相同但表面不同的迁移题。",
+    "教师课堂路径：把教师要讲什么改写为学生最终能辨认、表达、转换、解释或迁移什么。每次只改一个课堂环节，明确核心问题、学生任务、作品证据、观察标准和一个非换数字式变式，不虚构课堂数据。",
+    "实践反馈路径：只根据本轮提交的可观察证据判断已经发生的变化和一个未稳定点，再决定保持、升级或退阶。反馈结束必须给成人下一次只调整的一件事和下一项任务。",
+    "落地服务任务库已校准覆盖小学一年级至高中三年级。小学阶段若具体年级未知且任务选择确实依赖年级，只询问一次具体年级。大学超出本落地包校准范围，可以继续数学讲解和一般学习支持，但不要声称调用了大学分学段任务库。",
     "如果知识点学习课里由你自己生成几何例题，不能只写“如图”。必须在文字里写清图形对象、点名和关键关系，例如“三角形 ABC 中，D 在 BC 上，AD 垂直 BC”或“圆 O 外一点 P，PA 是切线，A 为切点”。这样右侧才能自动画出对应示意图。",
     "跨学段规划边界：小学重对象、单位、数量关系、图形直观和表达；初中重方程函数、几何证明、代数变形、模型迁移；高中重函数、数列、解析几何、立体几何、概率统计、导数与综合建模；大学重线性代数、微积分、概率统计、离散数学、数学建模或专业课先修结构。不要把所有知识一次塞满，要给路线和优先级。",
     "SDE知识画像底层功能：当用户询问某个知识、概念、公式、定理、方法，或追问“为什么要这样做”时，先在内部把它从静态结论还原为“在什么 E 中，经由什么 D，最终形成什么 S”的发生结构。这个画像必须由三部分组成：三方程、六路径、三原理。画像只用于后台思考，不要原样说给学生。",
@@ -2343,6 +2419,7 @@ function buildDeepSeekPayload(messages, profile, config, options = {}) {
         content: [
           systemPrompt(profile || {}, messages),
           buildRagContext(messages, profile || {}),
+          buildImplementationContext(messages, profile || {}),
           modelPromptLine(config),
           learningPlanLine(messages, profile || {}),
           directQuestionLine(messages),
@@ -3260,6 +3337,19 @@ async function handleCreateConversation(req, res) {
   });
 }
 
+async function handleGrowthProfile(req, res) {
+  const user = getUserFromRequest(req);
+  if (!user) {
+    sendJson(res, 401, { error: "请先登录" });
+    return;
+  }
+  const profile = readGrowthProfiles().find(item => item.userId === user.id) || null;
+  sendJson(res, 200, {
+    profile: publicGrowthProfile(profile),
+    implementation: getImplementationStatus()
+  });
+}
+
 async function handleReadConversation(req, res, conversationId) {
   const user = getUserFromRequest(req);
   if (!user) {
@@ -3326,6 +3416,13 @@ async function handleChat(req, res) {
         diagramAction: result.diagramAction,
         diagram: result.diagram
       }
+    );
+    recordImplementationTurn(
+      user,
+      profile,
+      body.displayText || latestUserMessage.displayContent || latestUserMessage.content,
+      result.answer,
+      conversation.id
     );
     sendJson(res, 200, {
       answer: result.answer,
@@ -3410,6 +3507,13 @@ async function handleChatStream(req, res) {
           diagram: directShapeResult.diagram
         }
       );
+      recordImplementationTurn(
+        user,
+        profile,
+        body.displayText || latestUserMessage.displayContent || latestUserMessage.content,
+        directShapeResult.answer,
+        conversation.id
+      );
       writeSse(res, "final", {
         answer: directShapeResult.answer,
         diagramAction: directShapeResult.diagramAction,
@@ -3479,6 +3583,13 @@ async function handleChatStream(req, res) {
         diagramAction,
         diagram
       }
+    );
+    recordImplementationTurn(
+      user,
+      profile,
+      body.displayText || latestUserMessage.displayContent || latestUserMessage.content,
+      answer,
+      conversation.id
     );
 
     writeSse(res, "final", {
@@ -3868,6 +3979,7 @@ const server = http.createServer((req, res) => {
   const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
   if (req.method === "GET" && url.pathname === "/version") {
     const ragStatus = getRagStatus();
+    const implementationStatus = getImplementationStatus();
     sendJson(res, 200, {
       version: APP_VERSION,
       chatLimitPerDay: DAILY_LIMIT,
@@ -3876,6 +3988,9 @@ const server = http.createServer((req, res) => {
       ragVersion: ragStatus.version,
       ragCardCount: ragStatus.cardCount,
       ragError: ragStatus.error,
+      implementationEnabled: implementationStatus.enabled,
+      implementationVersion: implementationStatus.version,
+      implementationError: implementationStatus.error,
       visionProvider: VISION_PROVIDER,
       rawVisionProvider: RAW_VISION_PROVIDER,
       visionFallbackEnabled: VISION_FALLBACK_ENABLED,
@@ -3918,6 +4033,10 @@ const server = http.createServer((req, res) => {
   }
   if (req.method === "POST" && url.pathname === "/api/conversations") {
     handleCreateConversation(req, res);
+    return;
+  }
+  if (req.method === "GET" && url.pathname === "/api/growth-profile") {
+    handleGrowthProfile(req, res);
     return;
   }
   if (req.method === "GET" && url.pathname.startsWith("/api/conversations/")) {
@@ -3965,7 +4084,9 @@ const server = http.createServer((req, res) => {
 
 server.listen(PORT, () => {
   const ragStatus = getRagStatus();
+  const implementationStatus = getImplementationStatus();
   console.log(`Math Agent is running on http://localhost:${PORT}`);
   console.log(`Daily chat limit: ${DAILY_LIMIT}`);
   console.log(`SDE RAG: ${ragStatus.enabled ? `${ragStatus.cardCount} cards (${ragStatus.version})` : `disabled - ${ragStatus.error}`}`);
+  console.log(`Learning implementation: ${implementationStatus.enabled ? `v${implementationStatus.version}` : `disabled - ${implementationStatus.error}`}`);
 });

@@ -290,6 +290,43 @@
     .action-btn.primary .action-sub {
       color: rgba(255,255,255,.86);
     }
+    .service-drawer {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      overflow: hidden;
+    }
+    .service-drawer > summary {
+      list-style: none;
+      cursor: pointer;
+    }
+    .service-drawer > summary::-webkit-details-marker { display: none; }
+    .service-drawer[open] > summary {
+      border-bottom: 1px solid var(--line);
+      border-radius: 0;
+    }
+    .service-options {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      padding: 10px;
+      background: #f8fafc;
+    }
+    .service-option {
+      min-height: 58px;
+      padding: 9px 10px;
+      text-align: left;
+      line-height: 1.35;
+    }
+    .service-option strong,
+    .service-option small {
+      display: block;
+    }
+    .service-option small {
+      margin-top: 3px;
+      color: var(--muted);
+      font-size: 11px;
+    }
     .seg {
       display: grid;
       grid-template-columns: repeat(2, 1fr);
@@ -870,6 +907,7 @@
         padding: 7px 10px;
       }
       .msg { max-width: 100%; }
+      .service-options { grid-template-columns: 1fr; }
     }
   </style>
 </head>
@@ -1007,6 +1045,33 @@
                     <span class="action-sub">进入一个知识点讲解与练习</span>
                   </span>
                 </button>
+                <details class="service-drawer">
+                  <summary class="btn action-btn">
+                    <span class="action-badge">实践</span>
+                    <span>
+                      <span class="action-main">诊断与实践服务</span>
+                      <span class="action-sub">基于真实作品安排最小任务</span>
+                    </span>
+                  </summary>
+                  <div class="service-options">
+                    <button class="btn service-option" id="familyDiagnosis">
+                      <strong>家庭诊断</strong>
+                      <small>错题、讲题或练习作品</small>
+                    </button>
+                    <button class="btn service-option" id="teacherPractice">
+                      <strong>教师课堂改造</strong>
+                      <small>教案、任务单或学生作品</small>
+                    </button>
+                    <button class="btn service-option" id="practiceFeedback">
+                      <strong>提交实践反馈</strong>
+                      <small>判断保持、升级或退阶</small>
+                    </button>
+                    <button class="btn service-option" id="growthProfile">
+                      <strong>查看成长档案</strong>
+                      <small>最近诊断与实践记录</small>
+                    </button>
+                  </div>
+                </details>
               </div>
             </div>
           </details>
@@ -1074,6 +1139,7 @@
   <script>
     let stage = "小学";
     let replyMode = "启发模式";
+    let activeServiceIntent = "";
     let history = [];
     let currentConversationId = "";
     let conversations = [];
@@ -2770,6 +2836,7 @@
           return;
         }
         currentConversationId = data.conversation.id;
+        activeServiceIntent = "";
         renderConversationMessages(Array.isArray(data.messages) ? data.messages : []);
         renderConversationList();
       } catch {
@@ -3113,7 +3180,7 @@
 
     function chatPayload(options = {}) {
       return {
-        profile: { ...profile(), intent: options.intent || "" },
+        profile: { ...profile(), intent: options.intent || activeServiceIntent || "" },
         messages: history,
         conversationId: currentConversationId,
         displayText: options.displayText || ""
@@ -3325,6 +3392,7 @@
     installAppButton.addEventListener("click", installApp);
 
     document.querySelector("#plan").addEventListener("click", () => {
+      activeServiceIntent = "";
       resetGuidedLearningContext();
       send("请根据我的阶段、目标和当前状态，安排今天的数学学习。", { intent: "daily_plan" });
     });
@@ -3339,6 +3407,7 @@
     }
 
     function submitSystemPlan() {
+      activeServiceIntent = "";
       document.querySelector("#systemPlanConfirm").classList.remove("show");
       resetGuidedLearningContext();
       send("请根据我的阶段、目标、当前状态和规划周期，制定一份系统化数学学习规划，包含学习路线、知识点顺序、练习安排和家长观察建议。", { intent: "system_plan" });
@@ -3351,9 +3420,90 @@
     document.querySelector("#confirmSystemPlan").addEventListener("click", submitSystemPlan);
 
     document.querySelector("#startLesson").addEventListener("click", () => {
+      activeServiceIntent = "lesson_start";
       resetGuidedLearningContext();
       send("请根据我的学习画像，选择一个最适合现在学习的数学知识点，开始一节知识点学习，并配套少量练习。", { intent: "lesson_start" });
     });
+
+    function startImplementationService(intent, displayText, requestText) {
+      resetGuidedLearningContext();
+      activeServiceIntent = intent;
+      send(requestText, { intent, displayText });
+    }
+
+    document.querySelector("#familyDiagnosis").addEventListener("click", () => {
+      startImplementationService(
+        "family_diagnosis",
+        "开始家庭数学学习诊断",
+        "请进入家庭诊断路径。先说明这项服务如何进行；如果目前还没有孩子的真实作品，只向我索取一项最小有效证据，例如一道典型错题和孩子原答案、一次讲题转写或一张练习作品。不要现在就给孩子下结论。"
+      );
+    });
+
+    document.querySelector("#teacherPractice").addEventListener("click", () => {
+      startImplementationService(
+        "teacher_practice",
+        "开始教师课堂改造",
+        "请进入教师课堂改造路径。先说明需要的最小材料；如果目前没有材料，只向我索取一份教案、任务单、学生作品或课堂片段，并询问最想解决的一个课堂问题。不要虚构课堂数据。"
+      );
+    });
+
+    document.querySelector("#practiceFeedback").addEventListener("click", () => {
+      startImplementationService(
+        "practice_feedback",
+        "提交实践反馈",
+        "请进入实践反馈路径。请我提交上一次最小任务的真实实践证据，只索取一项最关键材料，例如学生作品、讲题转写、家长提示记录或课堂观察。得到证据后再判断保持、升级或退阶。"
+      );
+    });
+
+    function compactGrowthText(value, limit = 38) {
+      const text = String(value || "").replace(/\s+/g, " ").replace(/\|/g, "／").trim();
+      return text.length > limit ? `${text.slice(0, limit)}…` : text;
+    }
+
+    async function showGrowthProfile() {
+      addMessage("查看成长档案", "user");
+      const loading = addMessage("正在读取成长档案...");
+      try {
+        const response = await fetch("/api/growth-profile", { headers: authHeaders() });
+        const data = await response.json().catch(() => ({}));
+        loading.remove();
+        if (!response.ok) {
+          addMessage(data.error || "成长档案读取失败。", "error");
+          return;
+        }
+        const entries = Array.isArray(data.profile?.entries) ? data.profile.entries : [];
+        if (!entries.length) {
+          addMessage("成长档案里还没有诊断或实践记录。请先从“家庭诊断”“教师课堂改造”或“提交实践反馈”开始一次服务。");
+          return;
+        }
+        const routeNames = {
+          family: "家庭诊断",
+          student: "学生自学",
+          teacher: "教师课堂",
+          feedback: "实践反馈",
+          growth: "成长报告",
+          consult: "方法咨询"
+        };
+        const rows = entries.slice(0, 10).map(entry => [
+          entry.date || "",
+          routeNames[entry.route] || entry.route || "记录",
+          compactGrowthText(entry.evidence),
+          compactGrowthText(entry.guidance)
+        ].join(" | "));
+        addMessage([
+          "最近的成长与实践记录",
+          "日期 | 类型 | 本轮证据 | 下一步摘要",
+          ...rows,
+          "",
+          "档案只记录实际发生的诊断与实践，不会把模型推测当作学生已经发生的变化。"
+        ].join("\n"));
+      } catch {
+        loading.remove();
+        addMessage("成长档案暂时无法读取，请稍后再试。", "error");
+      }
+    }
+
+    document.querySelector("#growthProfile").addEventListener("click", showGrowthProfile);
 
     document.querySelector("#imageInput").addEventListener("change", async event => {
       const file = event.target.files?.[0];
