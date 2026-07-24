@@ -3282,6 +3282,13 @@
           bubble.textContent = normalizeMathText(streamedText);
           messages.scrollTop = messages.scrollHeight;
         }
+        if (eventName === "replace") {
+          streamedText = data.text || "";
+          sawToken = Boolean(streamedText);
+          window.clearInterval(loadingTimer);
+          bubble.textContent = normalizeMathText(streamedText);
+          messages.scrollTop = messages.scrollHeight;
+        }
         if (eventName === "final") {
           finalData = data;
         }
@@ -3320,6 +3327,12 @@
       try {
         await sendStream(options, bubble, loadingTimer);
       } catch (error) {
+        if (/模型连接超时|连接超时/.test(String(error?.message || ""))) {
+          window.clearInterval(loadingTimer);
+          bubble.remove();
+          addMessage("连接超时，请稍后重试。", "error");
+          return;
+        }
         try {
           await sendClassic(options, bubble, loadingTimer);
         } catch {

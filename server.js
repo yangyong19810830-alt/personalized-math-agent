@@ -13,7 +13,7 @@ const {
 
 const PORT = Number(process.env.PORT || 8787);
 const ROOT = __dirname;
-const APP_VERSION = "sde-knowledge-20260724-rag-v0.2-implementation-v2";
+const APP_VERSION = "sde-knowledge-20260724-rag-v0.2-implementation-v2-flash-timeout-v1";
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || "";
 const DEEPSEEK_BASE_URL = (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com").replace(/\/$/, "");
 const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || "deepseek-v4-pro";
@@ -21,7 +21,6 @@ const DEEPSEEK_FLASH_MODEL = process.env.DEEPSEEK_FLASH_MODEL || "deepseek-v4-fl
 const DEEPSEEK_PRO_API_KEY = process.env.DEEPSEEK_PRO_API_KEY || DEEPSEEK_API_KEY;
 const DEEPSEEK_PRO_BASE_URL = (process.env.DEEPSEEK_PRO_BASE_URL || DEEPSEEK_BASE_URL).replace(/\/$/, "");
 const DEEPSEEK_PRO_MODEL = process.env.DEEPSEEK_PRO_MODEL || "deepseek-v4-pro";
-const DEEPSEEK_PRO_FALLBACK = String(process.env.DEEPSEEK_PRO_FALLBACK || "false").toLowerCase() === "true";
 const DEEPSEEK_TIMEOUT_MS = Number(process.env.DEEPSEEK_TIMEOUT_MS || 8500);
 const DEEPSEEK_HISTORY_LIMIT = Number(process.env.DEEPSEEK_HISTORY_LIMIT || 6);
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
@@ -722,6 +721,7 @@ function systemPrompt(profile, messages = []) {
   const mode = profile?.mode === "讲解模式" ? "讲解模式" : "启发模式";
   const isFirstUserTurn = userMessageCount(messages) <= 1;
   const isKnowledgeTurn = isKnowledgeLessonRequest(messages) || isLearningPlanRequest(messages, profile);
+  const isTaskInstruction = isDirectTaskInstruction(messages);
   const modeRules = mode === "讲解模式"
     ? [
         "当前回复模式：讲解模式。",
@@ -733,7 +733,9 @@ function systemPrompt(profile, messages = []) {
     : [
         "当前回复模式：启发模式。",
         "启发不是越短越好，要保证学生能继续走。回复建议 160-320 个汉字。",
-        isKnowledgeTurn
+        isTaskInstruction
+          ? "这是用户要求你执行整理、列举、比较、分类、总结、改写或表格输出等明确任务，不是学生发来一道题，也不是学生作答。直接完成用户要求；不要说“这是新题”，不要进入启发式追问，不要要求用户先分析对象、单位或关系。"
+          : isKnowledgeTurn
           ? "这是用户在请求学习某个知识点或学习规划，不是学生发来的题目，也不是学生作答。不要说“这是新题”，不要追问已知什么、要求什么；请直接进入知识点小课或学习安排。"
           : isFirstUserTurn
           ? "这是用户刚发来的题目，不是学生作答。不要说“你已经抓住了”“你算对了”“你这一步”等反馈语。应先判断题目结构，给一个观察入口和一个具体追问。"
@@ -771,6 +773,7 @@ function systemPrompt(profile, messages = []) {
     "同结构练习示例：鸡兔同笼不要只换鸡和兔数量，可以换成两轮车和三轮车、普通票和贵宾票、单价不同的两类物品；年龄倍数题可以换成树高、存款、积分等随时间一起变化的场景；周期排列题可以换成站牌、座位、彩旗、节目顺序等场景。",
     "判断学生是否能复述结构：合格复述应说出对象、单位/标准、关系模型和目标之间如何连接。若只说步骤或只背答案，要温和指出还没有说到结构，并引导补上对象和关系。",
     "如果用户是在请求出题、练习、测试，例如“给我出一道题”“来一道鸡兔同笼题”，这不是学生作答。必须先直接给出一道完整题目，语气自然，不要上来就让用户分析对象、单位/标准、关系。题目后只留一句轻提示，例如“你先试试，卡住了我再提示”。",
+    "如果用户给出明确任务指令，例如要求整理、列举、归纳、总结、比较、分类、改写、转换、翻译、制作清单或用表格输出，必须直接执行指令。不要把任务误判为数学题，不要启动启发式解题流程，也不要反问对象、单位、关系。用户指定表格时，必须按网页表格协议输出完整表格。",
     "如果用户提出明确疑问、反驳或追问为什么，例如“为什么要这样做”“为什么先平均分”“不是这个意思”“我问的是……”，必须先正面回答这个疑问。先用 2-5 句话解释原因，再根据需要回到结构；不要跳过用户的问题继续按原流程追问。",
     "如果学生回答有偏差、不标准、只回答了前面问题、漏掉最后一个问题，或连续两轮卡在同一处，不要继续模板式追问，也不要重复同一句话。改用选择式引导：给 2-4 个短选项，让学生选最接近自己想法的一项。选项要把学生带回正规路径，例如 A 先确认对象，B 先定单位/标准，C 先看关系，D 我不确定。每个选项尽量 8-18 字，便于手机上直接回复 A/B/C/D。",
     "启发模式的边界：不直接给最终答案，不一次性讲完整路线；但必须有质量，不能反复追问同一个点。学生连续答对时要整合并推进。",
@@ -939,9 +942,18 @@ function isPlanningText(text) {
   return /\u5b66\u4e60\u8ba1\u5212|\u5b66\u4e60\u89c4\u5212|\u7cfb\u7edf\u89c4\u5212|\u7cfb\u7edf\u5316|\u89c4\u5212\u5468\u671f|\u5b66\u4e60\u8def\u7ebf|\u77e5\u8bc6\u70b9\u987a\u5e8f|\u7ec3\u4e60\u5b89\u6392|\u5bb6\u957f\u89c2\u5bdf|\u5236\u5b9a.*\u89c4\u5212|\u5b89\u6392.*\u5b66\u4e60|\u5f00\u59cb.*\u77e5\u8bc6\u70b9|\u4e00\u8282\u8bfe/.test(String(text || ""));
 }
 
+function isDirectTaskInstruction(messages) {
+  const value = latestUserText(messages).trim();
+  if (!value) return false;
+  const action = /整理|列出|列举|归纳|总结|概括|比较|对比|分类|改写|转换|翻译|提取|汇总|输出|生成|制作|做成|排成|写成|用表格|表格形式|清单形式/;
+  const request = /请|帮我|麻烦|把|将|需要|想要|给我|能否|可以/;
+  return action.test(value) && (request.test(value) || /表格|清单/.test(value));
+}
+
 function isNewProblemInput(text) {
   const value = String(text || "").trim();
   if (isPlanningText(value)) return false;
+  if (isDirectTaskInstruction([{ role: "user", content: value }])) return false;
   if (value.length < 20) return false;
   if (isPracticeRequest([{ role: "user", content: value }])) return false;
   return /问|求|多少|几|如果|已知|证明|计算|一共|共有|需要|至少|最多|最少/.test(value)
@@ -971,6 +983,44 @@ function isKnowledgeLessonRequest(messages) {
   if (!latest || isPlanningText(latest) || isPracticeRequest(messages) || isNewProblemInput(latest)) return false;
   return /我想学|想学习|想了解|学习一下|学一下|教我|讲讲|讲一下|开始学|相关知识|知识点|怎么学|如何学/.test(latest)
     && /长方形|正方形|矩形|梯形|平行四边形|菱形|多边形|圆柱|圆锥|正方体|长方体|立方体|球|球体|棱柱|棱锥|周长|面积|表面积|侧面积|体积|函数|几何|三角形|四边形|圆|圆形|线段|直线|射线|角|平行|垂直|相似|全等|切线|数列|概率|方程|不等式|分数|小数|百分数|导数/.test(latest);
+}
+
+function directTaskInstructionLine(messages) {
+  if (!isDirectTaskInstruction(messages)) return "";
+  return [
+    "【最高优先级：执行用户指令】",
+    "最新一条用户消息是整理、列举、总结、比较、分类、改写或表格输出等明确任务。",
+    "直接完成任务，不要把它识别成一道待解题目，不要使用“这是一道新题”开场，也不要让用户先回答对象、单位、标准或关系。",
+    "若用户要求表格：第一行输出列名，后续每行输出一条记录，各列仅用“ | ”分隔；不要输出 Markdown 的横线分隔行。"
+  ].join("\n");
+}
+
+function fallbackDirectTaskReply(messages) {
+  const latest = latestUserText(messages);
+  if (/小学.*奥数|奥数.*小学/.test(latest) && /题型|类型|分类/.test(latest)) {
+    return [
+      "题型 | 核心结构 | 常用表示或方法",
+      "巧算与速算 | 利用运算律、凑整和拆分简化计算 | 分组、凑整、等差配对",
+      "数列与找规律 | 根据相邻项或分组变化寻找生成规则 | 列表、差分、周期",
+      "周期问题 | 固定的一组不断重复 | 最小循环、除法余数",
+      "数字谜与算式谜 | 数字位置受运算规则共同约束 | 竖式、枚举、排除",
+      "和差倍问题 | 两个或多个量由总和、差或倍数连接 | 线段图、份数法",
+      "年龄问题 | 多个对象同时增加相同时间，年龄差不变 | 线段图、方程",
+      "鸡兔同笼 | 两类对象共享总数量，但单位贡献不同 | 假设法、差量法、方程",
+      "盈亏问题 | 分配标准改变时，总量不变而余缺变化 | 对比表、差量关系",
+      "植树问题 | 间隔数与端点数之间存在加一、减一或相等关系 | 线段图、间隔模型",
+      "行程问题 | 路程由速度和时间共同决定 | 路程图、表格、比例",
+      "工程问题 | 总工作量由多个效率在时间中累积 | 单位“1”、效率表",
+      "浓度问题 | 溶质数量与溶液总量共同决定浓度 | 关系表、守恒关系",
+      "平均数问题 | 总量在若干对象之间重新均分 | 移多补少、总量÷份数",
+      "排列组合与计数 | 按一定顺序分类，做到不重不漏 | 树状图、列表、乘法原理",
+      "逻辑推理 | 多个条件共同限制对象之间的对应关系 | 条件表、排除法",
+      "几何计数 | 按层级或固定顺序统计图形，避免重漏 | 分类计数、编号",
+      "周长与面积 | 图形经过拼、拆、移后寻找不变量或等量关系 | 示意图、割补法",
+      "抽屉原理 | 平均分配后至少有一组达到某个数量 | 先平均分，再看余数"
+    ].join("\n");
+  }
+  return "我会直接按你的指令整理。为了保证结果完整，请稍后重试一次；系统不会再把这类请求当成新题进入启发式追问。";
 }
 
 function fallbackLearningPlanReply(messages, profile = {}) {
@@ -2289,6 +2339,9 @@ function fallbackTeachingReply(messages, profile = {}) {
   const text = latestUserText(messages);
   const allText = historyText(messages, 10);
   const isExplanation = profile?.mode === "讲解模式";
+  if (isDirectTaskInstruction(messages)) {
+    return fallbackDirectTaskReply(messages);
+  }
   if (isLearningPlanRequest(messages, profile)) {
     return fallbackLearningPlanReply(messages, profile);
   }
@@ -2340,6 +2393,9 @@ function fallbackTeachingReply(messages, profile = {}) {
 function nextHeuristicQuestion(messages) {
   const userCount = messages.filter(message => message.role === "user").length;
   const latest = latestUserText(messages);
+  if (isDirectTaskInstruction(messages)) {
+    return fallbackDirectTaskReply(messages);
+  }
   if (isDirectUserQuestion(messages)) {
     return directQuestionFallback(messages);
   }
@@ -2378,6 +2434,10 @@ function isLikelyIncomplete(text) {
 
 function trimHeuristicReply(text, messages, profile = {}) {
   const value = String(text || "").trim();
+  if (isDirectTaskInstruction(messages)) {
+    if (!value) return fallbackDirectTaskReply(messages);
+    return value.length > 6000 ? `${value.slice(0, 6000)}。` : value;
+  }
   if (isLearningPlanRequest(messages, profile)) {
     if (!value) return fallbackLearningPlanReply(messages, profile);
     return value.length > 6000 ? `${value.slice(0, 6000)}。` : value;
@@ -2422,6 +2482,7 @@ function buildDeepSeekPayload(messages, profile, config, options = {}) {
           buildImplementationContext(messages, profile || {}),
           modelPromptLine(config),
           learningPlanLine(messages, profile || {}),
+          directTaskInstructionLine(messages),
           directQuestionLine(messages),
           knowledgeAnalogyLine(messages),
           choiceScaffoldLine(messages),
@@ -2522,11 +2583,10 @@ async function requestDeepSeekStream(messages, profile, config, options = {}) {
       throw new Error("DeepSeek 响应超时");
     }
     throw error;
-  } finally {
-    clearTimeout(timeout);
   }
 
   if (!response.ok || !response.body) {
+    clearTimeout(timeout);
     const data = await response.json().catch(() => ({}));
     throw new Error(data.error?.message || data.message || `DeepSeek API 错误：${response.status}`);
   }
@@ -2535,31 +2595,40 @@ async function requestDeepSeekStream(messages, profile, config, options = {}) {
   const decoder = new TextDecoder("utf-8");
   let buffer = "";
   let raw = "";
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const events = buffer.split("\n\n");
-    buffer = events.pop() || "";
-    for (const event of events) {
-      const lines = event.split("\n").filter(line => line.startsWith("data:"));
-      for (const line of lines) {
-        const dataText = line.slice(5).trim();
-        if (!dataText || dataText === "[DONE]") continue;
-        let data;
-        try {
-          data = JSON.parse(dataText);
-        } catch {
-          continue;
-        }
-        const delta = data.choices?.[0]?.delta || {};
-        const piece = delta.content || delta.text || "";
-        if (piece) {
-          raw += piece;
-          options.onToken?.(piece);
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const events = buffer.split("\n\n");
+      buffer = events.pop() || "";
+      for (const event of events) {
+        const lines = event.split("\n").filter(line => line.startsWith("data:"));
+        for (const line of lines) {
+          const dataText = line.slice(5).trim();
+          if (!dataText || dataText === "[DONE]") continue;
+          let data;
+          try {
+            data = JSON.parse(dataText);
+          } catch {
+            continue;
+          }
+          const delta = data.choices?.[0]?.delta || {};
+          const piece = delta.content || delta.text || "";
+          if (piece) {
+            raw += piece;
+            options.onToken?.(piece);
+          }
         }
       }
     }
+  } catch (error) {
+    if (error.name === "AbortError") {
+      throw new Error("DeepSeek 响应超时");
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
   }
   const tail = decoder.decode();
   if (tail) raw += "";
@@ -2586,15 +2655,14 @@ async function callDeepSeekWithConfig(messages, profile, config) {
     if (config.tier === "pro") {
       try {
         const flashResult = await callFlashFallback(messages, profile, error.message);
+        if (!String(flashResult.raw || "").trim()) throw new Error("Flash 返回为空");
         flashResult.raw = trimHeuristicReply(flashResult.raw, messages, profile);
         return flashResult;
-      } catch {}
+      } catch {
+        throw new Error("连接超时，请稍后重试。");
+      }
     }
-    return {
-      raw: trimHeuristicReply(fallbackTeachingReply(messages, profile), messages, profile),
-      config,
-      data: { fallback: true, reason: error.message || "request failed" }
-    };
+    throw new Error("连接超时，请稍后重试。");
   }
   if (result.raw) {
     if (profile?.mode === "讲解模式" && config.tier === "pro" && (isLengthCutoff(result) || isLikelyIncomplete(result.raw))) {
@@ -2615,18 +2683,16 @@ async function callDeepSeekWithConfig(messages, profile, config) {
   if (config.tier === "pro") {
     try {
       const flashResult = await callFlashFallback(messages, profile, "empty model content");
-      if (flashResult.raw) {
+      if (String(flashResult.raw || "").trim()) {
         flashResult.raw = trimHeuristicReply(flashResult.raw, messages, profile);
         return flashResult;
       }
-    } catch {}
+    } catch {
+      throw new Error("连接超时，请稍后重试。");
+    }
   }
 
-  return {
-    raw: trimHeuristicReply(fallbackTeachingReply(messages, profile), messages, profile),
-    config,
-    data: { fallback: true, reason: "empty model content", original: result.data }
-  };
+  throw new Error("连接超时，请稍后重试。");
 }
 
 async function callDeepSeek(messages, profile) {
@@ -2634,29 +2700,9 @@ async function callDeepSeek(messages, profile) {
   if (directShapeResult) return directShapeResult;
 
   const primaryConfig = deepSeekConfig(messages, profile);
-  let raw = "";
-  let usedConfig = primaryConfig;
-
-  try {
-    const result = await callDeepSeekWithConfig(messages, profile, primaryConfig);
-    raw = result.raw;
-    usedConfig = result.config;
-  } catch (error) {
-    if (primaryConfig.tier !== "pro" || !DEEPSEEK_PRO_FALLBACK) {
-      throw error;
-    }
-    const fallbackConfig = {
-      tier: "pro-retry",
-      apiKey: DEEPSEEK_API_KEY,
-      baseUrl: DEEPSEEK_BASE_URL,
-      model: DEEPSEEK_PRO_MODEL,
-      temperature: 0.25,
-      maxTokens: profile?.mode === "讲解模式" ? 2200 : 900
-    };
-    const result = await callDeepSeekWithConfig(messages, profile, fallbackConfig);
-    raw = result.raw;
-    usedConfig = result.config;
-  }
+  const result = await callDeepSeekWithConfig(messages, profile, primaryConfig);
+  const raw = result.raw;
+  const usedConfig = result.config;
 
   const parsed = extractJsonObject(raw);
   if (!parsed || typeof parsed !== "object") {
@@ -3535,16 +3581,27 @@ async function handleChatStream(req, res) {
       streamResult = await requestDeepSeekStream(messages, profile, primaryConfig, {
         onToken: token => writeSse(res, "token", { token })
       });
+      if (!String(streamResult.raw || "").trim()) throw new Error("Pro 返回为空");
     } catch (error) {
-      const fallback = trimHeuristicReply(fallbackTeachingReply(messages, profile), messages, profile);
-      for (const part of fallback.match(/.{1,18}/gs) || [fallback]) {
-        writeSse(res, "token", { token: part });
+      writeSse(res, "replace", { text: "Pro 响应超时，正在切换 Flash..." });
+      try {
+        const flashResult = await callFlashFallback(messages, profile, error.message || "stream failed");
+        if (!String(flashResult.raw || "").trim()) throw new Error("Flash 返回为空");
+        const flashAnswer = trimHeuristicReply(flashResult.raw, messages, profile);
+        writeSse(res, "replace", { text: "" });
+        for (const part of flashAnswer.match(/.{1,18}/gs) || [flashAnswer]) {
+          writeSse(res, "token", { token: part });
+        }
+        streamResult = {
+          ...flashResult,
+          raw: flashAnswer
+        };
+      } catch {
+        writeSse(res, "replace", { text: "" });
+        writeSse(res, "error", { error: "连接超时，请稍后重试。" });
+        res.end();
+        return;
       }
-      streamResult = {
-        raw: fallback,
-        config: primaryConfig,
-        data: { fallback: true, reason: error.message || "stream failed" }
-      };
     }
 
     let answer = trimHeuristicReply(streamResult.raw, messages, profile);
