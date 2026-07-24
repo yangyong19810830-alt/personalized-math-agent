@@ -8,7 +8,7 @@ const { buildRagContext, getRagStatus } = require("./rag-retriever");
 
 const PORT = Number(process.env.PORT || 8787);
 const ROOT = __dirname;
-const APP_VERSION = "sde-knowledge-20260724-professional-rag-v0.2";
+const APP_VERSION = "sde-knowledge-20260724-rag-v0.2-inline-visuals";
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || "";
 const DEEPSEEK_BASE_URL = (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com").replace(/\/$/, "");
 const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || "deepseek-v4-pro";
@@ -699,7 +699,8 @@ function systemPrompt(profile, messages = []) {
     "如果学生回答有偏差、不标准、只回答了前面问题、漏掉最后一个问题，或连续两轮卡在同一处，不要继续模板式追问，也不要重复同一句话。改用选择式引导：给 2-4 个短选项，让学生选最接近自己想法的一项。选项要把学生带回正规路径，例如 A 先确认对象，B 先定单位/标准，C 先看关系，D 我不确定。每个选项尽量 8-18 字，便于手机上直接回复 A/B/C/D。",
     "启发模式的边界：不直接给最终答案，不一次性讲完整路线；但必须有质量，不能反复追问同一个点。学生连续答对时要整合并推进。",
     "对学生说大白话，不暴露内部理论术语。禁止使用：SDE、纠缠、差异序列、结构显露、显露态、六爪、抓核、抓裂缝、改姓、锻造、投放、本体论、发生链、在 E 中、经 D、成 S。",
-    "输出格式必须是普通文本，不要使用 Markdown 标题、加粗、列表符号、代码块或表格语法。不要输出 ###、**、```、- **标题** 这类标记。",
+    "输出格式必须是普通文本，不要使用 Markdown 标题、加粗、列表符号或代码块。不要输出 ###、**、```、- **标题** 这类标记。",
+    "当比较、分类、数据整理或学习计划用表格更清楚时，可以输出简单表格：每行各列之间用“ | ”分隔，第一行写列名，后面直接写数据，不要输出 Markdown 的 --- 分隔行。网页会把它自动显示成正常表格。",
     "数学公式必须用可直接复制粘贴的普通符号，例如 x ≤ (a-2)/4、x ≥ -1、3/4 ÷ 1/8、∠ABC、AB²。不要输出 \\dfrac、\\frac、\\leqslant、\\begin{cases}、$...$ 等 LaTeX 原码。",
     "不要机械问“已知什么、求什么”。要帮助学生看见对象、标准、关系，以及适合用图、表、式还是方程表达。",
     "如果题目来自图片识别，尤其是几何题，且识别结果里有“看不清/不确定/未标注”，不要把不确定关系当成已知条件。先向学生核对关键图形关系，例如点名、平行、垂直、相等、角度、长度、切点、中点等，再继续启发或讲解。",
@@ -711,9 +712,7 @@ function systemPrompt(profile, messages = []) {
     `当前意图：${profile.intent || "普通对话"}。`,
     ...modeRules,
     "输出要求：直接给学生看的自然语言，不要输出 JSON，不要 Markdown，不要代码块。",
-    "如果需要画结构图，图的节点顺序要符合学生理解顺序：先对象/已知条件，再单位或标准，再关键关系，再解题动作，最后目标结果或检查。边的标签要短，像“对应”“变化”“推出”“检查”这种能说明关系流动的词。前端会把结构图做成逐步播放的动图，所以不要让节点顺序杂乱。",
-    "如果是几何题，并且输出结构图数据，请把 diagram.demoType 设为 geometry；节点要围绕读图对象、已知标注、关键桥梁、定理依据、目标结论组织。几何动态图只做关系示意，不要把图中没标注的平行、垂直、相等、切线等关系当成已知。",
-    "如果学生主动要求画图，或当前是讲解模式并且已经找出对象关系，可以在文字中说“我先把关系画出来”，但不要输出图形数据。"
+    "只有学生明确要求画图、作图、配图、图解或示意图时，才在文字中说“我把图放在这段解释下面”。不要把结构图当作每题固定栏目，也不要暗示页面右侧另有图。"
   ].join("\n");
 }
 
@@ -1251,15 +1250,7 @@ function diagramProblemText(messages = []) {
 
 function shouldShowLocalDiagram(messages, profile = {}) {
   const text = latestUserText(messages);
-  const recentText = historyText(messages, 4);
-  if (classifyPrimaryOlympiadContext(diagramProblemText(messages))) return true;
-  if (profile.intent === "lesson_start") return true;
-  if (/画图|结构图|图解|画出来|关系图|示意图|看图理解/.test(text)) return true;
-  if (isKnowledgeVisualTopic(`${text}\n${recentText}`)) return true;
-  if (profile.mode === "讲解模式") return true;
-  if (messages.filter(message => message.role === "user").length >= 2 && /不会|不懂|卡住|没思路|不知道|错了|再讲|为什么/.test(text)) return true;
-  return /几何|证明|钟|追及|相遇|工程|行程|函数|参数|分类讨论|数列|导数|圆|三角形|面积|体积|概率/.test(recentText)
-    && messages.filter(message => message.role === "user").length >= 2;
+  return /画图|作图|配图|图解|画出来|关系图|示意图|看图理解|图像画出来|画个图/.test(text);
 }
 
 function isKnowledgeVisualTopic(text) {
@@ -2138,11 +2129,14 @@ function diagramMatchesProblem(diagram, messages = []) {
 function buildDirectShapeDefinitionResult(messages, profile = {}) {
   const answer = shapeDefinitionReply(messages);
   if (!answer) return null;
+  const shouldDraw = shouldShowLocalDiagram(messages, profile);
   const topic = extractShapeTopic(latestUserText(messages));
-  const diagram = buildShapeKnowledgeDiagram(topic || latestUserText(messages)) || buildLocalDiagram(messages, answer);
+  const diagram = shouldDraw
+    ? (buildShapeKnowledgeDiagram(topic || latestUserText(messages)) || buildLocalDiagram(messages, answer))
+    : null;
   return {
     answer,
-    diagramAction: diagram ? "show" : "hold",
+    diagramAction: shouldDraw && diagram ? "show" : "hold",
     diagram,
     modelTier: "local",
     model: "shape-definition-direct"
@@ -2606,7 +2600,7 @@ async function callDeepSeek(messages, profile) {
   const action = ["hold", "show", "update"].includes(parsed.diagramAction) ? parsed.diagramAction : "hold";
   const normalizedCandidate = action === "hold" ? null : normalizeDiagram(parsed.diagram);
   const normalizedDiagram = diagramMatchesProblem(normalizedCandidate, messages) ? normalizedCandidate : null;
-  const finalAction = action === "hold" && shouldForceDiagram ? "show" : action;
+  const finalAction = shouldForceDiagram ? (action === "hold" ? "show" : action) : "hold";
   const answer = String(parsed.answer || raw).trim();
   const preferLocal = finalAction !== "hold" && shouldPreferLocalDiagram(messages, profile);
   const localDiagram = finalAction === "hold" ? null : buildLocalDiagram(messages, answer);
@@ -3450,13 +3444,14 @@ async function handleChatStream(req, res) {
     }
 
     let answer = trimHeuristicReply(streamResult.raw, messages, profile);
-    let diagramAction = shouldShowLocalDiagram(messages, profile) ? "show" : "hold";
+    const shouldForceDiagram = shouldShowLocalDiagram(messages, profile);
+    let diagramAction = shouldForceDiagram ? "show" : "hold";
     let diagram = null;
     const parsed = extractJsonObject(answer);
     if (parsed && typeof parsed === "object") {
       answer = String(parsed.answer || answer).trim();
       const action = ["hold", "show", "update"].includes(parsed.diagramAction) ? parsed.diagramAction : "hold";
-      diagramAction = action === "hold" && shouldShowLocalDiagram(messages, profile) ? "show" : action;
+      diagramAction = shouldForceDiagram ? (action === "hold" ? "show" : action) : "hold";
       const normalizedCandidate = action === "hold" ? null : normalizeDiagram(parsed.diagram);
       const normalizedDiagram = diagramMatchesProblem(normalizedCandidate, messages) ? normalizedCandidate : null;
       if (normalizedDiagram?.nodes?.length) diagram = normalizedDiagram;

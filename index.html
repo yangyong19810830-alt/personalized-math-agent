@@ -99,7 +99,7 @@
     }
     main {
       display: grid;
-      grid-template-columns: 300px minmax(420px, 1fr) 360px;
+      grid-template-columns: 300px minmax(0, 1fr);
       gap: 16px;
       padding: 16px;
       min-height: 0;
@@ -342,6 +342,43 @@
       font-size: 14px;
       overflow-wrap: anywhere;
     }
+    .msg-content { white-space: pre-wrap; }
+    .msg.has-visual {
+      width: min(100%, 760px);
+      max-width: 100%;
+    }
+    .message-table-wrap {
+      width: 100%;
+      overflow-x: auto;
+      margin: 8px 0;
+      border: 1px solid #cfd8e3;
+      border-radius: 7px;
+      background: #fff;
+    }
+    .message-table {
+      width: 100%;
+      min-width: 360px;
+      border-collapse: collapse;
+      white-space: normal;
+      font-size: 13px;
+      line-height: 1.45;
+    }
+    .message-table th,
+    .message-table td {
+      padding: 8px 10px;
+      border-right: 1px solid #e5e7eb;
+      border-bottom: 1px solid #e5e7eb;
+      text-align: left;
+      vertical-align: top;
+    }
+    .message-table th {
+      background: #f3f8f7;
+      color: #1f2937;
+      font-weight: 800;
+    }
+    .message-table tr:last-child td { border-bottom: 0; }
+    .message-table th:last-child,
+    .message-table td:last-child { border-right: 0; }
     .msg.agent {
       border: 1px solid #b9e3dc;
       background: var(--soft);
@@ -590,6 +627,17 @@
       background: #fff;
       padding: 12px;
     }
+    .inline-visual {
+      margin-top: 12px;
+      white-space: normal;
+    }
+    .inline-visual .visual-card {
+      background: #fff;
+      box-shadow: 0 4px 14px rgba(15, 23, 42, .06);
+    }
+    .inline-visual .visual-card svg {
+      max-height: 420px;
+    }
     .visual-title {
       font-weight: 800;
       font-size: 14px;
@@ -817,7 +865,6 @@
         order: -1;
         min-height: calc(100dvh - 112px);
       }
-      .visual { min-height: 360px; }
       .composer {
         margin: 0 4px 8px;
         padding: 7px 10px;
@@ -1021,11 +1068,6 @@
         </div>
       </section>
 
-      <aside class="panel visual">
-        <div class="head"><h2>结构示意图</h2></div>
-        <div class="visual-board" id="visualBoard"></div>
-        <div class="body small">输入题目或知识点后，这里会画出“对象、关系、步骤、目标”或概念结构的示意图。</div>
-      </aside>
     </main>
   </div>
 
@@ -1052,7 +1094,7 @@
     const quota = document.querySelector("#quota");
     const authPanel = document.querySelector("#authPanel");
     const mainApp = document.querySelector("#mainApp");
-    const visualBoard = document.querySelector("#visualBoard");
+    let activeVisualTarget = null;
     const imagePreview = document.querySelector("#imagePreview");
     const previewImage = document.querySelector("#previewImage");
     const filePreviewIcon = document.querySelector("#filePreviewIcon");
@@ -1140,11 +1182,97 @@
       installAppButton.classList.add("hidden");
     }
 
+    function tableCells(line) {
+      const value = String(line || "").trim();
+      if (!value) return [];
+      if (value.includes("\t")) return value.split(/\t+/).map(cell => cell.trim());
+      if (!/\s\|\s/.test(value) && !(value.startsWith("|") && value.endsWith("|"))) return [];
+      return value.replace(/^\|/, "").replace(/\|$/, "").split("|").map(cell => cell.trim());
+    }
+
+    function isTableDivider(cells) {
+      return cells.length > 1 && cells.every(cell => /^:?-{3,}:?$/.test(cell));
+    }
+
+    function appendPlainText(container, lines) {
+      if (!lines.length) return;
+      const block = document.createElement("div");
+      block.textContent = lines.join("\n");
+      container.appendChild(block);
+    }
+
+    function renderRichMessage(div, text) {
+      const normalized = normalizeMathText(text);
+      [...div.childNodes].forEach(child => {
+        if (child.nodeType === Node.TEXT_NODE || child.classList?.contains("msg-content")) {
+          child.remove();
+        }
+      });
+      const content = document.createElement("div");
+      content.className = "msg-content";
+      const lines = normalized.split("\n");
+      let plain = [];
+      let index = 0;
+
+      while (index < lines.length) {
+        const firstCells = tableCells(lines[index]);
+        const nextCells = index + 1 < lines.length ? tableCells(lines[index + 1]) : [];
+        const startsTable = firstCells.length > 1 && nextCells.length === firstCells.length;
+        if (!startsTable) {
+          plain.push(lines[index]);
+          index += 1;
+          continue;
+        }
+
+        appendPlainText(content, plain);
+        plain = [];
+        const rows = [];
+        while (index < lines.length) {
+          const cells = tableCells(lines[index]);
+          if (cells.length !== firstCells.length) break;
+          rows.push(cells);
+          index += 1;
+        }
+
+        const wrap = document.createElement("div");
+        wrap.className = "message-table-wrap";
+        const table = document.createElement("table");
+        table.className = "message-table";
+        const dividerIndex = rows.findIndex(isTableDivider);
+        const header = rows[0];
+        const bodyRows = rows.filter((_, rowIndex) => rowIndex !== 0 && rowIndex !== dividerIndex);
+        const thead = document.createElement("thead");
+        const headRow = document.createElement("tr");
+        header.forEach(cellText => {
+          const cell = document.createElement("th");
+          cell.textContent = cellText;
+          headRow.appendChild(cell);
+        });
+        thead.appendChild(headRow);
+        table.appendChild(thead);
+        const tbody = document.createElement("tbody");
+        bodyRows.forEach(row => {
+          const tr = document.createElement("tr");
+          row.forEach(cellText => {
+            const cell = document.createElement("td");
+            cell.textContent = cellText;
+            tr.appendChild(cell);
+          });
+          tbody.appendChild(tr);
+        });
+        table.appendChild(tbody);
+        wrap.appendChild(table);
+        content.appendChild(wrap);
+      }
+      appendPlainText(content, plain);
+      div.prepend(content);
+      return normalized;
+    }
+
     function addMessage(text, role = "agent") {
       const div = document.createElement("div");
       div.className = `msg ${role}`;
-      const normalized = normalizeMathText(text);
-      div.textContent = normalized;
+      const normalized = renderRichMessage(div, text);
       if (role === "agent" && normalized && !normalized.startsWith("正在")) {
         appendAgentTools(div, normalized);
       }
@@ -1634,8 +1762,10 @@
     }
 
     function visualCard(title, svg, legend, controls = "") {
+      const visualTarget = activeVisualTarget;
+      if (!visualTarget) return;
       const controlHtml = controls || `<button class="btn" type="button" data-replay-diagram>重新播放</button>`;
-      visualBoard.innerHTML = `
+      visualTarget.innerHTML = `
         <div class="visual-card">
           <div class="visual-heading">
             <div class="visual-title">${title}</div>
@@ -1645,8 +1775,8 @@
           <div class="legend">${legend}</div>
         </div>
       `;
-      visualBoard.querySelector("[data-replay-diagram]")?.addEventListener("click", playDiagramAnimation);
-      requestAnimationFrame(playDiagramAnimation);
+      visualTarget.querySelector("[data-replay-diagram]")?.addEventListener("click", () => playDiagramAnimation(visualTarget));
+      requestAnimationFrame(() => playDiagramAnimation(visualTarget));
     }
 
     function drawDefault() {
@@ -1702,8 +1832,8 @@
       return styles[type] || styles.step;
     }
 
-    function playDiagramAnimation() {
-      const card = visualBoard.querySelector(".visual-card");
+    function playDiagramAnimation(target = activeVisualTarget) {
+      const card = target?.querySelector(".visual-card");
       if (!card) return;
       card.classList.remove("playing");
       void card.offsetWidth;
@@ -2480,7 +2610,7 @@
 
     function renderStructureDiagram(diagram) {
       if (!diagram || !Array.isArray(diagram.nodes) || !diagram.nodes.length) {
-        drawDefault();
+        activeVisualTarget?.remove();
         return;
       }
       const demoType = String(diagram.demoType || "");
@@ -2610,16 +2740,22 @@
     function renderConversationMessages(items) {
       messages.innerHTML = "";
       history = [];
-      drawDefault();
+      activeVisualTarget = null;
       items.forEach(item => {
         const role = item.role === "user" ? "user" : "agent";
-        addMessage(item.displayContent || item.content || "", role);
+        const bubble = addMessage(item.displayContent || item.content || "", role);
         history.push({
           role: item.role === "assistant" ? "assistant" : "user",
           content: item.content || item.displayContent || ""
         });
         if (item.role === "assistant" && (item.diagramAction === "show" || item.diagramAction === "update")) {
+          const visual = document.createElement("div");
+          visual.className = "inline-visual";
+          bubble.classList.add("has-visual");
+          bubble.appendChild(visual);
+          activeVisualTarget = visual;
           renderStructureDiagram(item.diagram);
+          activeVisualTarget = null;
         }
       });
     }
@@ -2652,7 +2788,7 @@
         currentConversationId = data.conversation.id;
         history = [];
         messages.innerHTML = "";
-        drawDefault();
+        activeVisualTarget = null;
         addMessage("新的对话已开启。你可以发一道题，也可以让我制定系统学习规划、安排今天学习，或开始一个知识点小课。");
         await loadConversations();
       } catch {
@@ -2664,7 +2800,7 @@
       currentConversationId = "";
       history = [];
       messages.innerHTML = "";
-      drawDefault();
+      activeVisualTarget = null;
     }
 
     function authHeaders() {
@@ -3005,12 +3141,16 @@
     async function finishAssistantMessage(data, bubble, streamedText = "") {
       setQuota(data);
       const finalAnswer = chooseFinalAnswer(data.answer, streamedText);
-      bubble.textContent = normalizeMathText(finalAnswer);
+      renderRichMessage(bubble, finalAnswer);
       appendAgentTools(bubble, finalAnswer);
       if (data.diagramAction === "show" || data.diagramAction === "update") {
+        const visual = document.createElement("div");
+        visual.className = "inline-visual";
+        bubble.classList.add("has-visual");
+        bubble.appendChild(visual);
+        activeVisualTarget = visual;
         renderStructureDiagram(data.diagram);
-      } else {
-        drawThinking();
+        activeVisualTarget = null;
       }
       if (data.conversation?.id) {
         currentConversationId = data.conversation.id;
@@ -3099,7 +3239,6 @@
 
     async function send(text, options = {}) {
       addMessage(options.displayText || text, "user");
-      drawThinking();
       history.push({ role: "user", content: text });
       const bubble = addMessage(replyMode === "讲解模式" ? "正在连接讲解模型..." : "正在连接启发模型...");
       const loadingTips = replyMode === "讲解模式"
@@ -3261,7 +3400,7 @@
     setupInviteOnlyAuth();
     setupPwaInstall();
     loadQuota();
-    drawDefault();
+    activeVisualTarget = null;
   </script>
 </body>
 </html>
